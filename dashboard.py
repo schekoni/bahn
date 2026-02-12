@@ -23,6 +23,16 @@ ROUTE_TITLES = {
     "Afternoon Offenburg->Freiburg": "Offenburg -> Freiburg",
 }
 
+COMMUTE_TARGET_TIME = {
+    "Morning Freiburg->Offenburg": "06:45",
+    "Afternoon Offenburg->Freiburg": "16:30",
+}
+
+CAR_ROUTE_BY_TRAIN_ROUTE = {
+    "Morning Freiburg->Offenburg": "Car Morning Freiburg->Offenburg",
+    "Afternoon Offenburg->Freiburg": "Car Afternoon Offenburg->Freiburg",
+}
+
 
 def load_data(db_path: str, timezone: str) -> pd.DataFrame:
     with sqlite3.connect(db_path) as con:
@@ -48,6 +58,7 @@ def load_data(db_path: str, timezone: str) -> pd.DataFrame:
                     observation_ts,
                     planned_departure,
                     planned_arrival,
+                    actual_arrival,
                     delay_minutes,
                     {arrival_delay_expr} AS arrival_delay_minutes,
                     {arrival_observed_expr} AS arrival_observed,
@@ -59,7 +70,7 @@ def load_data(db_path: str, timezone: str) -> pd.DataFrame:
                 ORDER BY service_date DESC, route_label, planned_departure
                 """,
                 con,
-                parse_dates=["observation_ts", "planned_departure", "planned_arrival"],
+                parse_dates=["observation_ts", "planned_departure", "planned_arrival", "actual_arrival"],
             )
         except Exception:
             return pd.DataFrame()
@@ -90,6 +101,137 @@ def load_data(db_path: str, timezone: str) -> pd.DataFrame:
     df["effective_arrival_open"] = (~df["arrival_observed"]) & (~df["effective_arrival_missing"])
 
     return df
+
+
+def load_car_data(db_path: str) -> pd.DataFrame:
+    with sqlite3.connect(db_path) as con:
+        cols = {row[1] for row in con.execute("PRAGMA table_info(car_observations)").fetchall()}
+        if not cols:
+            return pd.DataFrame()
+        df = pd.read_sql_query(
+            """
+            SELECT
+                service_date,
+                route_label,
+                observation_ts,
+                target_departure_time,
+                duration_minutes,
+                distance_km
+            FROM car_observations
+            ORDER BY service_date DESC, route_label
+            """,
+            con,
+            parse_dates=["observation_ts"],
+        )
+    if df.empty:
+        return df
+    df["service_date"] = pd.to_datetime(df["service_date"]).dt.date
+    return df
+
+
+def _build_train_commute_series(df: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    for route_label, target_time in COMMUTE_TARGET_TIME.items():
+        route_df = df[df["route_label"] == route_label].copy()
+        if route_df.empty:
+            continue
+        target_minutes = int(target_time.split(":")[0]) * 60 + int(target_time.split(":")[1])
+        for service_date, day in route_df.groupby("service_date"):
+            day = day.copy()
+            dep_minutes = day["planned_departure"].dt.hour * 60 + day["planned_departure"].dt.minute
+            day["minutes_diff"] = (dep_minutes - target_minutes).abs()
+            chosen = day.sort_values(["minutes_diff", "planned_departure"], kind="stable").iloc[0]
+
+            rail_minutes = None
+            if pd.notna(chosen["planned_arrival"]):
+                if bool(chosen["arrival_observed"]):
+                    actual_arrival = chosen["actual_arrival"] if pd.notna(chosen["actual_arrival"]) else chosen["planned_arrival"]
+                    rail_minutes = int((actual_arrival - chosen["planned_departure"]).total_seconds() / 60)
+
+            rows.append(
+                {
+                    "service_date": service_date,
+                    "route_label": route_label,
+                    "bahn_minutes": rail_minutes,
+                }
+            )
+
+    if not rows:
+        return pd.DataFrame(columns=["service_date", "route_label", "bahn_minutes"])
+    return pd.DataFrame(rows)
+
+
+def _build_car_commute_series(car_df: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    for train_route, car_route in CAR_ROUTE_BY_TRAIN_ROUTE.items():
+        tmp = car_df[car_df["route_label"] == car_route].copy()
+        if tmp.empty:
+            continue
+        for service_date, day in tmp.groupby("service_date"):
+            chosen = day.sort_values("observation_ts", ascending=False, kind="stable").iloc[0]
+            rows.append(
+                {
+                    "service_date": service_date,
+                    "route_label": train_route,
+                    "auto_minutes": int(chosen["duration_minutes"]),
+                }
+            )
+    if not rows:
+        return pd.DataFrame(columns=["service_date", "route_label", "auto_minutes"])
+    return pd.DataFrame(rows)
+
+
+def render_bahn_vs_auto(train_df: pd.DataFrame, car_df: pd.DataFrame) -> None:
+    st.subheader("Bahn vs Auto (Pendelzeiten)")
+    if car_df.empty:
+        st.info("Auto-Vergleich noch nicht verfügbar. Setze `ORS_API_KEY` für openrouteservice.")
+        return
+
+    train_series = _build_train_commute_series(train_df)
+    car_series = _build_car_commute_series(car_df)
+    merged = train_series.merge(car_series, on=["service_date", "route_label"], how="outer")
+    if merged.empty:
+        st.info("Noch keine Vergleichsdaten vorhanden.")
+        return
+
+    merged["diff_minutes"] = merged["bahn_minutes"] - merged["auto_minutes"]
+    merged["route_name"] = merged["route_label"].map(ROUTE_TITLES).fillna(merged["route_label"])
+    merged = merged.sort_values(["service_date", "route_name"])
+
+    latest_date = merged["service_date"].max()
+    latest = merged[merged["service_date"] == latest_date]
+    st.caption(f"Letzter Vergleichstag: {latest_date}")
+    c1, c2 = st.columns(2)
+    for col, label in ((c1, "Freiburg -> Offenburg"), (c2, "Offenburg -> Freiburg")):
+        row = latest[latest["route_name"] == label]
+        if row.empty:
+            col.metric(label, "k.A.")
+            continue
+        r = row.iloc[0]
+        if pd.isna(r["bahn_minutes"]) or pd.isna(r["auto_minutes"]):
+            col.metric(label, "k.A.")
+            continue
+        diff = int(r["diff_minutes"])
+        col.metric(label, f"{int(r['bahn_minutes'])} min Bahn vs {int(r['auto_minutes'])} min Auto", f"{diff:+d} min")
+
+    fig = go.Figure()
+    for route_name, route_df in merged.groupby("route_name"):
+        fig.add_trace(
+            go.Scatter(
+                x=pd.to_datetime(route_df["service_date"]),
+                y=route_df["diff_minutes"],
+                mode="lines+markers",
+                name=route_name,
+            )
+        )
+    fig.update_layout(
+        title="Differenz Bahn - Auto (Minuten)",
+        xaxis_title="Datum",
+        yaxis_title="Minuten (+ = Bahn langsamer)",
+        height=300,
+        margin=dict(l=20, r=20, t=40, b=20),
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def _cell_value(row: pd.Series) -> str:
@@ -375,6 +517,7 @@ def main() -> None:
 
     settings = load_settings()
     df = load_data(settings.database_path, settings.timezone)
+    car_df = load_car_data(settings.database_path)
 
     if df.empty:
         st.info("Noch keine Daten vorhanden. Erst `python run_collection.py` ausführen.")
@@ -382,6 +525,7 @@ def main() -> None:
 
     max_date = max(df["service_date"])
     end_date = st.date_input("Berichts-Enddatum", value=max_date)
+    render_bahn_vs_auto(df, car_df)
 
     route_payloads: list[tuple[str, pd.DataFrame, list[str]]] = []
     for route_label in ROUTE_ORDER:

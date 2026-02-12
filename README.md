@@ -31,6 +31,7 @@ cp .env.example .env
 ```
 
 3. `DB_CLIENT_ID` und `DB_API_KEY` in `.env` eintragen.
+4. Fuer Auto-Vergleich (optional) `ORS_API_KEY` eintragen.
 4. EVA-Nummern pruefen (Default ist gesetzt):
 
 ```env
@@ -76,6 +77,7 @@ Einrichtung:
 2. In GitHub unter `Settings -> Secrets and variables -> Actions` diese Secrets anlegen:
 `DB_CLIENT_ID`
 `DB_API_KEY`
+`ORS_API_KEY` (optional, fuer Auto-Vergleich)
 3. Unter `Actions` den Workflow `DB Collector` einmal manuell mit `Run workflow` starten.
 4. Streamlit Community Cloud mit diesem Repo verbinden und `dashboard.py` als Startdatei waehlen.
 
