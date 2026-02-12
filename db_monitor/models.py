@@ -51,3 +51,15 @@ class Observation:
     canceled_departure: bool
     canceled_arrival: bool
     canceled: bool
+
+
+@dataclass(frozen=True)
+class CarObservation:
+    observation_ts: datetime
+    service_date: str
+    route_label: str
+    from_name: str
+    to_name: str
+    target_departure_time: str
+    duration_minutes: int
+    distance_km: float

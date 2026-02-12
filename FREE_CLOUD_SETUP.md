@@ -27,6 +27,7 @@ In GitHub Repo:
 Anlegen:
 - `DB_CLIENT_ID`
 - `DB_API_KEY`
+- `ORS_API_KEY` (optional fuer Auto-Fahrzeitvergleich)
 
 ## 3. Workflow starten und prüfen
 

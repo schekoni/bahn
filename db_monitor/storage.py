@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from db_monitor.models import Observation
+from db_monitor.models import CarObservation, Observation
 
 
 SCHEMA = """
@@ -33,6 +33,19 @@ CREATE TABLE IF NOT EXISTS observations (
     canceled_arrival INTEGER NOT NULL DEFAULT 0,
     canceled INTEGER NOT NULL,
     UNIQUE(service_date, train_id, route_label)
+);
+
+CREATE TABLE IF NOT EXISTS car_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_ts TEXT NOT NULL,
+    service_date TEXT NOT NULL,
+    route_label TEXT NOT NULL,
+    from_name TEXT NOT NULL,
+    to_name TEXT NOT NULL,
+    target_departure_time TEXT NOT NULL,
+    duration_minutes INTEGER NOT NULL,
+    distance_km REAL NOT NULL,
+    UNIQUE(service_date, route_label, target_departure_time)
 );
 """
 
@@ -158,6 +171,43 @@ class ObservationStore:
                         int(row.canceled_departure),
                         int(row.canceled_arrival),
                         int(row.canceled),
+                    )
+                    for row in rows
+                ],
+            )
+            con.commit()
+        return len(rows)
+
+    def upsert_car_many(self, rows: list[CarObservation]) -> int:
+        if not rows:
+            return 0
+
+        with sqlite3.connect(self.db_path) as con:
+            cursor = con.cursor()
+            cursor.executemany(
+                """
+                INSERT INTO car_observations (
+                    observation_ts, service_date, route_label, from_name, to_name,
+                    target_departure_time, duration_minutes, distance_km
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(service_date, route_label, target_departure_time)
+                DO UPDATE SET
+                    observation_ts=excluded.observation_ts,
+                    from_name=excluded.from_name,
+                    to_name=excluded.to_name,
+                    duration_minutes=excluded.duration_minutes,
+                    distance_km=excluded.distance_km
+                """,
+                [
+                    (
+                        row.observation_ts.isoformat(),
+                        row.service_date,
+                        row.route_label,
+                        row.from_name,
+                        row.to_name,
+                        row.target_departure_time,
+                        row.duration_minutes,
+                        row.distance_km,
                     )
                     for row in rows
                 ],
