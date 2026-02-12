@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from datetime import datetime
 from datetime import date, timedelta
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -22,7 +24,7 @@ ROUTE_TITLES = {
 }
 
 
-def load_data(db_path: str) -> pd.DataFrame:
+def load_data(db_path: str, timezone: str) -> pd.DataFrame:
     with sqlite3.connect(db_path) as con:
         cols = {row[1] for row in con.execute("PRAGMA table_info(observations)").fetchall()}
         if not cols:
@@ -43,7 +45,9 @@ def load_data(db_path: str) -> pd.DataFrame:
                     {train_name_expr} AS train_name,
                     line,
                     route_label,
+                    observation_ts,
                     planned_departure,
+                    planned_arrival,
                     delay_minutes,
                     {arrival_delay_expr} AS arrival_delay_minutes,
                     {arrival_observed_expr} AS arrival_observed,
@@ -55,7 +59,7 @@ def load_data(db_path: str) -> pd.DataFrame:
                 ORDER BY service_date DESC, route_label, planned_departure
                 """,
                 con,
-                parse_dates=["planned_departure"],
+                parse_dates=["observation_ts", "planned_departure", "planned_arrival"],
             )
         except Exception:
             return pd.DataFrame()
@@ -76,6 +80,13 @@ def load_data(db_path: str) -> pd.DataFrame:
         lambda r: f"{(r['train_name'] or r['line'] or 'Unbekannt')} | {r['departure_hhmm']}",
         axis=1,
     )
+
+    now_local = datetime.now(ZoneInfo(timezone)).replace(tzinfo=None)
+    deadline = df["planned_arrival"] + pd.to_timedelta(1, unit="h")
+    inferred_missing = (~df["arrival_observed"]) & (df["planned_arrival"].notna()) & (deadline < now_local)
+    df["effective_arrival_missing"] = df["arrival_info_missing"] | inferred_missing
+    df["effective_arrival_open"] = (~df["arrival_observed"]) & (~df["effective_arrival_missing"])
+
     return df
 
 
@@ -86,7 +97,7 @@ def _cell_value(row: pd.Series) -> str:
     if bool(row["arrival_observed"]):
         arr = int(float(row["arrival_delay_minutes"]))
         return f"S:{dep} A:{arr}"
-    if bool(row["arrival_info_missing"]):
+    if bool(row["effective_arrival_missing"]):
         return f"S:{dep} A:k.A."
     return f"S:{dep} A:offen"
 
@@ -361,7 +372,7 @@ def main() -> None:
     )
 
     settings = load_settings()
-    df = load_data(settings.database_path)
+    df = load_data(settings.database_path, settings.timezone)
 
     if df.empty:
         st.info("Noch keine Daten vorhanden. Erst `python run_collection.py` ausführen.")
@@ -369,6 +380,13 @@ def main() -> None:
 
     max_date = max(df["service_date"])
     end_date = st.date_input("Berichts-Enddatum", value=max_date)
+
+    last_obs = df["observation_ts"].max()
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Letztes Update", str(last_obs)[:19] if pd.notna(last_obs) else "k.A.")
+    c2.metric("Datensätze gesamt", int(len(df)))
+    c3.metric("Ankunft k.A.", int(df["effective_arrival_missing"].sum()))
+    c4.metric("Ankunft offen", int(df["effective_arrival_open"].sum()))
 
     for route_label in ROUTE_ORDER:
         st.subheader(ROUTE_TITLES.get(route_label, route_label))
