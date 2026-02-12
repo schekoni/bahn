@@ -72,6 +72,7 @@ def _match_arrival_for_departure(
 def collect_observations(settings: Settings, windows: list[RouteWindow]) -> list[Observation]:
     tz = ZoneInfo(settings.timezone)
     now = datetime.now(tz)
+    now_local_naive = now.replace(tzinfo=None)
     service_date = now.date()
 
     client = DBApiClient(settings)
@@ -137,7 +138,7 @@ def collect_observations(settings: Settings, windows: list[RouteWindow]) -> list
 
             planned_arrival = matched_arr.planned_arrival if matched_arr else None
             arrival_deadline = planned_arrival + timedelta(hours=1) if planned_arrival else None
-            within_capture_window = bool(arrival_deadline and now <= arrival_deadline)
+            within_capture_window = bool(arrival_deadline and now_local_naive <= arrival_deadline)
 
             arrival_event_available = bool(
                 arr_change
@@ -162,7 +163,7 @@ def collect_observations(settings: Settings, windows: list[RouteWindow]) -> list
                 canceled_arrival = False
                 arrival_reason = ""
 
-            arrival_info_missing = bool(planned_arrival and not arrival_observed and now > arrival_deadline)
+            arrival_info_missing = bool(planned_arrival and not arrival_observed and now_local_naive > arrival_deadline)
             canceled_any = canceled_departure or canceled_arrival
 
             observations.append(
