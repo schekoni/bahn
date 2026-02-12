@@ -83,8 +83,10 @@ def load_data(db_path: str, timezone: str) -> pd.DataFrame:
 
     now_local = datetime.now(ZoneInfo(timezone)).replace(tzinfo=None)
     deadline = df["planned_arrival"] + pd.to_timedelta(1, unit="h")
+    today_local = now_local.date()
     inferred_missing = (~df["arrival_observed"]) & (df["planned_arrival"].notna()) & (deadline < now_local)
-    df["effective_arrival_missing"] = df["arrival_info_missing"] | inferred_missing
+    inferred_missing_past = (~df["arrival_observed"]) & (df["service_date"] < today_local)
+    df["effective_arrival_missing"] = df["arrival_info_missing"] | inferred_missing | inferred_missing_past
     df["effective_arrival_open"] = (~df["arrival_observed"]) & (~df["effective_arrival_missing"])
 
     return df
