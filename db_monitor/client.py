@@ -58,6 +58,10 @@ class DBApiClient:
             headers={"Accept": "application/xml"},
             timeout=30,
         )
+        if response.status_code == 404:
+            # Some stations/hours legitimately have no plan payload.
+            # Return an empty timetable so collectors can continue.
+            return "<timetable/>"
         self._raise_with_context(response, "timetables/v1/plan")
         return response.text
 
