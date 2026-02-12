@@ -148,12 +148,17 @@ def collect_observations(settings: Settings, windows: list[RouteWindow]) -> list
                 )
             )
 
-            # If we can still query within the 1h window and we matched the train
-            # at the target station timetable, treat arrival as observed.
-            # When no explicit change exists, we assume on-time (0 min).
+            # Treat explicit arrival events as observed immediately.
+            # Otherwise, only infer an observed on-time arrival once planned arrival
+            # has passed and we are still inside the 1h capture window.
             arrival_observed = bool(
                 arrival_event_available
-                or (within_capture_window and planned_arrival is not None and matched_arr is not None)
+                or (
+                    within_capture_window
+                    and planned_arrival is not None
+                    and matched_arr is not None
+                    and now_local_naive >= planned_arrival
+                )
             )
 
             if arrival_observed:
