@@ -144,7 +144,6 @@ def collect_observations(settings: Settings, windows: list[RouteWindow]) -> list
                 and (
                     arr_change.changed_arrival is not None
                     or arr_change.canceled
-                    or arr_change.arrival_reason.strip()
                 )
             )
 
