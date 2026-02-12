@@ -70,7 +70,7 @@ class ObservationStore:
 
     def initialize(self) -> None:
         with sqlite3.connect(self.db_path) as con:
-            con.execute(SCHEMA)
+            con.executescript(SCHEMA)
             self._migrate_existing_table(con)
             con.commit()
 
