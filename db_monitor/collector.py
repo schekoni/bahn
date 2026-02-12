@@ -139,10 +139,18 @@ def collect_observations(settings: Settings, windows: list[RouteWindow]) -> list
             planned_arrival = matched_arr.planned_arrival if matched_arr else None
             arrival_deadline = planned_arrival + timedelta(hours=1) if planned_arrival else None
             within_capture_window = bool(arrival_deadline and now_local_naive <= arrival_deadline)
+
+            arrival_time_event_is_past = bool(
+                arr_change
+                and arr_change.changed_arrival is not None
+                and planned_arrival is not None
+                and now_local_naive >= planned_arrival
+                and arr_change.changed_arrival <= now_local_naive
+            )
             arrival_event_available = bool(
                 arr_change
                 and (
-                    arr_change.changed_arrival is not None
+                    arrival_time_event_is_past
                     or arr_change.canceled
                 )
             )
