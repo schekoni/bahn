@@ -1,0 +1,112 @@
+[
+  {
+    "pmid": "DEMO0001",
+    "title": "Multicenter randomized trial of direct thrombectomy workflow in acute ischemic stroke",
+    "journal": "Stroke",
+    "publication_date": "2026-01-12",
+    "abstract": "Randomized controlled trial in 1520 patients with acute ischemic stroke. Primary endpoint: functional outcome at 90 days. HR 0.82 (95% CI 0.72-0.93), p=0.002. OR 1.36 (95% CI 1.18-1.57), mortality reduced.",
+    "publication_types": [
+      "Randomized Controlled Trial",
+      "Multicenter Study"
+    ],
+    "affiliations": [
+      "University Hospital Berlin, Germany",
+      "Mayo Clinic, United States"
+    ],
+    "country_hints": [
+      "Deutschland",
+      "USA"
+    ],
+    "doi": "10.0000/demo.1",
+    "score": 75,
+    "score_breakdown": {
+      "design": 25,
+      "sample_size": 13,
+      "hard_endpoints": 10,
+      "effect_stats": 15,
+      "generalizability": 4,
+      "guideline_impact": 8
+    },
+    "clinical_relevance_notes": [],
+    "key_statistics": [
+      "HR 0.82 (95% CI 0.72-0.93)",
+      "OR 1.36 (95% CI 1.18-1.57)",
+      "p=0.002",
+      "95% CI 0.72-0.93)",
+      "95% CI 1.18-1.57)"
+    ],
+    "context_statement": "Hohe potenzielle Praxisrelevanz; direkter Bezug zur akuten Reperfusionsstrategie."
+  },
+  {
+    "pmid": "DEMO0003",
+    "title": "Systematic review and meta-analysis on blood pressure targets in intracerebral hemorrhage",
+    "journal": "Lancet Neurology",
+    "publication_date": "2026-01-25",
+    "abstract": "Meta-analysis of 17 trials on intracerebral hemorrhage acute care. Functional outcome and mortality analyzed. OR 1.14 (95% CI 1.03-1.27), p=0.01.",
+    "publication_types": [
+      "Meta-Analysis",
+      "Systematic Review"
+    ],
+    "affiliations": [
+      "Paris Brain Institute, France",
+      "Karolinska Institute, Sweden"
+    ],
+    "country_hints": [
+      "Frankreich",
+      "Schweden"
+    ],
+    "doi": "10.0000/demo.3",
+    "score": 65,
+    "score_breakdown": {
+      "design": 22,
+      "sample_size": 6,
+      "hard_endpoints": 15,
+      "effect_stats": 11,
+      "generalizability": 6,
+      "guideline_impact": 5
+    },
+    "clinical_relevance_notes": [],
+    "key_statistics": [
+      "OR 1.14 (95% CI 1.03-1.27)",
+      "p=0.01",
+      "95% CI 1.03-1.27)"
+    ],
+    "context_statement": "Hohe potenzielle Praxisrelevanz; relevant für neurovaskuläre Notfallpfade."
+  },
+  {
+    "pmid": "DEMO0002",
+    "title": "International registry analysis of door-to-needle optimization in emergency departments",
+    "journal": "Neurology",
+    "publication_date": "2026-01-21",
+    "abstract": "Prospective registry including n=2100 in emergency department stroke pathways. Reduced treatment delay with improved disability outcomes. RR 0.88 (95% CI 0.80-0.96), p=0.004.",
+    "publication_types": [
+      "Observational Study",
+      "Multicenter Study"
+    ],
+    "affiliations": [
+      "Toronto Stroke Program, Canada",
+      "University of Melbourne, Australia"
+    ],
+    "country_hints": [
+      "Kanada",
+      "Australien"
+    ],
+    "doi": "10.0000/demo.2",
+    "score": 62,
+    "score_breakdown": {
+      "design": 15,
+      "sample_size": 15,
+      "hard_endpoints": 5,
+      "effect_stats": 11,
+      "generalizability": 8,
+      "guideline_impact": 8
+    },
+    "clinical_relevance_notes": [],
+    "key_statistics": [
+      "RR 0.88 (95% CI 0.80-0.96)",
+      "p=0.004",
+      "95% CI 0.80-0.96)"
+    ],
+    "context_statement": "Moderate potenzielle Praxisrelevanz; relevant für neuro-notfallmedizinische Prozessoptimierung."
+  }
+]

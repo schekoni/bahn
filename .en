@@ -1,0 +1,18 @@
+DB_CLIENT_ID=your_client_id
+DB_CLIENT_SECRET=your_client_secret
+TIMEZONE=Europe/Berlin
+DATABASE_PATH=data/train_punctuality.db
+
+# Optional overrides
+DB_STATION_ENDPOINT=https://apis.deutschebahn.com/db-api-marketplace/apis/station-data/v2
+DB_TIMETABLES_ENDPOINT=https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1
+
+MORNING_SOURCE=Freiburg(Breisgau) Hbf
+MORNING_TARGET=Offenburg
+MORNING_START=06:00
+MORNING_END=08:00
+
+AFTERNOON_SOURCE=Offenburg
+AFTERNOON_TARGET=Freiburg(Breisgau) Hbf
+AFTERNOON_START=15:30
+AFTERNOON_END=17:00

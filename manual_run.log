@@ -1,0 +1,13 @@
+Stored 14 observations in data/train_punctuality.db
+Stored 14 observations in data/train_punctuality.db
+Stored 14 observations in data/train_punctuality.db
+Traceback (most recent call last):
+  File "/Users/konradwhittaker/Documents/New project/run_collection.py", line 19, in <module>
+    main()
+    ~~~~^^
+  File "/Users/konradwhittaker/Documents/New project/run_collection.py", line 13, in main
+    rows = collect_observations(settings, windows)
+  File "/Users/konradwhittaker/Documents/New project/db_monitor/collector.py", line 140, in collect_observations
+    within_capture_window = bool(arrival_deadline and now <= arrival_deadline)
+                                                      ^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: can't compare offset-naive and offset-aware datetimes
