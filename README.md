@@ -47,6 +47,14 @@ AFTERNOON_TARGET_EVA=8000107
 python run_collection.py
 ```
 
+Bei jedem Lauf wird optional ein lokaler Backup-Snapshot erstellt:
+- Zielordner: `data/backups`
+- Default-Aufbewahrung: 60 Tage
+- Steuerung per `.env`:
+`BACKUP_ENABLED=true`
+`BACKUP_DIR=data/backups`
+`BACKUP_RETENTION_DAYS=60`
+
 ## Dashboard starten
 
 ```bash
