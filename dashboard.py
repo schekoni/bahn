@@ -100,6 +100,14 @@ def load_data(db_path: str, timezone: str) -> pd.DataFrame:
     df["effective_arrival_missing"] = df["arrival_info_missing"] | inferred_missing | inferred_missing_past
     df["effective_arrival_open"] = (~df["arrival_observed"]) & (~df["effective_arrival_missing"])
 
+    # Departure can be falsely shown as 0 before scheduled departure time.
+    # Mark these as unknown in the UI.
+    df["effective_departure_unknown"] = (
+        (~df["canceled"])
+        & (df["observation_ts"].dt.tz_localize(None) < df["planned_departure"])
+        & (df["delay_minutes"] == 0)
+    )
+
     # Guard against historic false-positive "observed=1" rows created before logic fix:
     # if observation happened before planned arrival and only on-time fallback exists,
     # treat arrival as unknown for display.
@@ -205,11 +213,11 @@ def render_car_summary(car_df: pd.DataFrame) -> None:
 def _cell_value(row: pd.Series) -> str:
     if bool(row["canceled"]):
         return "Ausfall"
-    dep = int(float(row["delay_minutes"]))
+    dep_token = "-" if bool(row["effective_departure_unknown"]) else str(int(float(row["delay_minutes"])))
     if bool(row["arrival_observed"]):
         arr = int(float(row["arrival_delay_minutes"]))
-        return f"S:{dep} A:{arr}"
-    return f"S:{dep} A:-"
+        return f"S:{dep_token} A:{arr}"
+    return f"S:{dep_token} A:-"
 
 
 def _delay_color(delay: float) -> str:
@@ -231,15 +239,19 @@ def _style_day_cell(value: object) -> str:
     if "Ausfall" in text:
         return "background-color: #7b1fa2; color: white; font-weight: 600;"
 
-    match = re.search(r"S:(-?\d+)\s+A:(-|\d+)", text)
+    match = re.search(r"S:(-|\d+)\s+A:(-|\d+)", text)
     if not match:
         return ""
 
-    dep = int(match.group(1))
+    dep_token = match.group(1)
     arr_token = match.group(2)
-    levels = [dep]
+    levels: list[int] = []
+    if re.fullmatch(r"\d+", dep_token):
+        levels.append(int(dep_token))
     if re.fullmatch(r"\d+", arr_token):
         levels.append(int(arr_token))
+    if not levels:
+        return ""
     level = max(levels)
     color = _delay_color(level)
     text_color = "white" if color in {"#2e7d32", "#c62828"} else "black"
@@ -478,7 +490,7 @@ def main() -> None:
     st.set_page_config(page_title="DB Pünktlichkeitsmonitor", layout="wide")
     st.title("DB Pünktlichkeitsmonitor")
     st.caption(
-        "Tagesspalten: S=Start, A=Ankunft (Minuten). A:- = keine verlässliche Ankunftsinformation. Farben: grün <5, orange <=15, rot >15, lila=Ausfall."
+        "Tagesspalten: S=Start, A=Ankunft (Minuten). '-' = keine verlässliche Information. Farben: grün <5, orange <=15, rot >15, lila=Ausfall."
     )
 
     settings = load_settings()
