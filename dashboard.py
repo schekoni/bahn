@@ -383,23 +383,34 @@ def main() -> None:
     max_date = max(df["service_date"])
     end_date = st.date_input("Berichts-Enddatum", value=max_date)
 
-    last_obs = df["observation_ts"].max()
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Letztes Update", str(last_obs)[:19] if pd.notna(last_obs) else "k.A.")
-    c2.metric("Datensätze gesamt", int(len(df)))
-    c3.metric("Ankunft k.A.", int(df["effective_arrival_missing"].sum()))
-    c4.metric("Ankunft offen", int(df["effective_arrival_open"].sum()))
-
+    route_payloads: list[tuple[str, pd.DataFrame, list[str]]] = []
     for route_label in ROUTE_ORDER:
-        st.subheader(ROUTE_TITLES.get(route_label, route_label))
         matrix, day_cols = build_route_matrix(df, route_label=route_label, end_date=end_date, days=30)
+        route_payloads.append((route_label, matrix, day_cols))
+
+    # 1) Main tables first, one below another.
+    for route_label, matrix, day_cols in route_payloads:
+        st.subheader(ROUTE_TITLES.get(route_label, route_label))
         if matrix.empty:
             st.write("Keine Daten für die letzten 30 Tage vorhanden.")
             continue
 
         styled = style_matrix(matrix, day_cols)
         st.dataframe(styled, use_container_width=True, hide_index=True)
+
+    # 2) Then train histories, separated by route.
+    for route_label, _, _ in route_payloads:
+        st.subheader(f"Verlauf je Zug: {ROUTE_TITLES.get(route_label, route_label)}")
         render_train_expandable_charts(df, route_label)
+
+    # 3) Health metrics at the end.
+    st.subheader("Systemstatus")
+    last_obs = df["observation_ts"].max()
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Letztes Update", str(last_obs)[:19] if pd.notna(last_obs) else "k.A.")
+    c2.metric("Datensätze gesamt", int(len(df)))
+    c3.metric("Ankunft k.A.", int(df["effective_arrival_missing"].sum()))
+    c4.metric("Ankunft offen", int(df["effective_arrival_open"].sum()))
 
 
 if __name__ == "__main__":
