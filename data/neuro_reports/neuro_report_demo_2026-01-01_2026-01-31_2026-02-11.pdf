@@ -1,0 +1,648 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 3 /Kids [7 0 R 9 0 R 11 0 R] >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >>
+endobj
+6 0 obj
+<< /Length 3869 >>
+stream
+BT
+/F2 20 Tf
+44 800 Td
+(Neurologie Clinical Update) Tj
+ET
+BT
+/F2 14 Tf
+44 776 Td
+(Monatsnewsletter: Schlaganfall und Neuro-Notfallmedizin) Tj
+ET
+BT
+/F1 11 Tf
+44 758 Td
+(Berichtszeitraum 2026-01-01 bis 2026-01-31 | Stand 2026-02-11) Tj
+ET
+BT
+/F2 14 Tf
+44 732 Td
+(Editorial Snapshot) Tj
+ET
+BT
+/F1 10 Tf
+44 714 Td
+(Dieser Report priorisiert Studien mit potenziellem Einfluss auf Akutdiagnostik,) Tj
+ET
+BT
+/F1 10 Tf
+44 700 Td
+(Reperfusionsstrategien, Neuro-Intensivpfade und klinische Entscheidungsprozesse in der) Tj
+ET
+BT
+/F1 10 Tf
+44 686 Td
+(Notfallversorgung.) Tj
+ET
+BT
+/F1 10 Tf
+44 672 Td
+(Anzahl priorisierter Studien: 3) Tj
+ET
+BT
+/F2 14 Tf
+44 648 Td
+(Top-Highlights) Tj
+ET
+BT
+/F2 10 Tf
+44 630 Td
+(1. Multicenter randomized trial of direct thrombectomy workflow in acute ischemic stroke) Tj
+ET
+BT
+/F1 10 Tf
+62 616 Td
+(Score 75 | Stroke | OR 1.36 \(95% CI 1.18-1.57\), mortality reduced.) Tj
+ET
+BT
+/F2 10 Tf
+44 602 Td
+(2. Systematic review and meta-analysis on blood pressure targets in intracerebral hemorrhage) Tj
+ET
+BT
+/F1 10 Tf
+62 588 Td
+(Score 65 | Lancet Neurology | Functional outcome and mortality analyzed.) Tj
+ET
+BT
+/F2 10 Tf
+44 574 Td
+(3. International registry analysis of door-to-needle optimization in emergency departments) Tj
+ET
+BT
+/F1 10 Tf
+62 560 Td
+(Score 62 | Neurology | Reduced treatment delay with improved disability outcomes.) Tj
+ET
+BT
+/F2 14 Tf
+44 536 Td
+(Methodik und Auswahl) Tj
+ET
+BT
+/F1 10 Tf
+44 518 Td
+(Datenquelle: PubMed E-utilities, monatliches Publikationsfenster.) Tj
+ET
+BT
+/F1 10 Tf
+44 504 Td
+(Einschluss: klinische Studien in Stroke/Neuro-Notfallmedizin \(RCT, Metaanalyse, hochwertige) Tj
+ET
+BT
+/F1 10 Tf
+44 490 Td
+(Kohorten/Register\).) Tj
+ET
+BT
+/F1 10 Tf
+44 476 Td
+(Ausschluss: Labor-/Tiermodelle, Fallberichte, seltene Nischenindikationen ohne Breitenrelevanz.) Tj
+ET
+BT
+/F1 10 Tf
+44 462 Td
+(Bewertung: Design, Stichprobengroesse, harte Endpunkte, Statistikrobustheit,) Tj
+ET
+BT
+/F1 10 Tf
+44 448 Td
+(Generalisierbarkeit, Leitlinienpotenzial.) Tj
+ET
+0.7 w 44 419 m 551 419 l S
+BT
+/F2 15 Tf
+44 414 Td
+(Studie 1: Multicenter randomized trial of direct thrombectomy) Tj
+ET
+BT
+/F2 15 Tf
+44 394 Td
+(workflow in acute ischemic stroke) Tj
+ET
+BT
+/F1 9 Tf
+44 374 Td
+(Journal: Stroke | Datum: 2026-01-12 | Laender: Deutschland, USA | PMID: DEMO0001 | DOI: 10.0000/demo.1) Tj
+ET
+BT
+/F2 10 Tf
+44 362 Td
+(Kernbotschaft) Tj
+ET
+BT
+/F1 10 Tf
+62 348 Td
+(OR 1.36 \(95% CI 1.18-1.57\), mortality reduced.) Tj
+ET
+BT
+/F2 10 Tf
+44 334 Td
+(Studiendesign) Tj
+ET
+BT
+/F1 10 Tf
+62 320 Td
+(Randomized controlled trial in 1520 patients with acute ischemic stroke.) Tj
+ET
+BT
+/F2 10 Tf
+44 306 Td
+(Population) Tj
+ET
+BT
+/F1 10 Tf
+62 292 Td
+(Randomized controlled trial in 1520 patients with acute ischemic stroke.) Tj
+ET
+BT
+/F2 10 Tf
+44 278 Td
+(Primaerer Endpunkt) Tj
+ET
+BT
+/F1 10 Tf
+62 264 Td
+(Primary endpoint: functional outcome at 90 days.) Tj
+ET
+BT
+/F2 10 Tf
+44 250 Td
+(Hauptergebnis) Tj
+ET
+BT
+/F1 10 Tf
+62 236 Td
+(OR 1.36 \(95% CI 1.18-1.57\), mortality reduced.) Tj
+ET
+BT
+/F2 10 Tf
+44 222 Td
+(Statistische Eckpunkte) Tj
+ET
+BT
+/F1 10 Tf
+62 208 Td
+(- HR 0.82 \(95% CI 0.72-0.93\)) Tj
+ET
+BT
+/F1 10 Tf
+62 194 Td
+(- OR 1.36 \(95% CI 1.18-1.57\)) Tj
+ET
+BT
+/F1 10 Tf
+62 180 Td
+(- p=0.002) Tj
+ET
+BT
+/F1 10 Tf
+62 166 Td
+(- 95% CI 0.72-0.93\)) Tj
+ET
+BT
+/F1 10 Tf
+62 152 Td
+(- 95% CI 1.18-1.57\)) Tj
+ET
+BT
+/F2 10 Tf
+44 138 Td
+(Klinische Einordnung) Tj
+ET
+BT
+/F1 10 Tf
+62 124 Td
+(Hohe potenzielle Praxisrelevanz; direkter Bezug zur akuten Reperfusionsstrategie.) Tj
+ET
+BT
+/F2 10 Tf
+44 110 Td
+(Was koennte sich in der Praxis aendern) Tj
+ET
+BT
+/F1 10 Tf
+62 96 Td
+(Hohe potenzielle Praxisrelevanz; direkter Bezug zur akuten Reperfusionsstrategie. Signal auf) Tj
+ET
+BT
+/F1 10 Tf
+62 82 Td
+(patientenrelevante Endpunkte vorhanden. Hoch priorisieren fuer Team-Review und moegliche) Tj
+ET
+BT
+/F1 10 Tf
+62 68 Td
+(SOP-Anpassung.) Tj
+ET
+BT
+/F1 9 Tf
+491 38 Td
+(Seite 1/3) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 6 0 R >>
+endobj
+8 0 obj
+<< /Length 3671 >>
+stream
+BT
+/F2 10 Tf
+44 800 Td
+(Limitationen) Tj
+ET
+BT
+/F1 10 Tf
+62 786 Td
+(Keine expliziten Limitationen im Abstract genannt; kritische Volltextbewertung bleibt) Tj
+ET
+BT
+/F1 10 Tf
+62 772 Td
+(erforderlich.) Tj
+ET
+BT
+/F3 10 Tf
+44 758 Td
+(Score Breakdown: Design 25, N 13, Endpunkte 10, Statistik 15, Generalisierbarkeit 4,) Tj
+ET
+BT
+/F3 10 Tf
+44 744 Td
+(Leitlinienpotenzial 8 | Gesamt 75) Tj
+ET
+0.7 w 44 715 m 551 715 l S
+BT
+/F2 15 Tf
+44 710 Td
+(Studie 2: Systematic review and meta-analysis on blood pressure) Tj
+ET
+BT
+/F2 15 Tf
+44 690 Td
+(targets in intracerebral hemorrhage) Tj
+ET
+BT
+/F1 9 Tf
+44 670 Td
+(Journal: Lancet Neurology | Datum: 2026-01-25 | Laender: Frankreich, Schweden | PMID: DEMO0003 | DOI:) Tj
+ET
+BT
+/F1 9 Tf
+44 658 Td
+(10.0000/demo.3) Tj
+ET
+BT
+/F2 10 Tf
+44 646 Td
+(Kernbotschaft) Tj
+ET
+BT
+/F1 10 Tf
+62 632 Td
+(Functional outcome and mortality analyzed.) Tj
+ET
+BT
+/F2 10 Tf
+44 618 Td
+(Studiendesign) Tj
+ET
+BT
+/F1 10 Tf
+62 604 Td
+(Meta-analysis of 17 trials on intracerebral hemorrhage acute care.) Tj
+ET
+BT
+/F2 10 Tf
+44 590 Td
+(Population) Tj
+ET
+BT
+/F1 10 Tf
+62 576 Td
+(Population nicht eindeutig quantifizierbar aus dem Abstract.) Tj
+ET
+BT
+/F2 10 Tf
+44 562 Td
+(Primaerer Endpunkt) Tj
+ET
+BT
+/F1 10 Tf
+62 548 Td
+(Functional outcome and mortality analyzed.) Tj
+ET
+BT
+/F2 10 Tf
+44 534 Td
+(Hauptergebnis) Tj
+ET
+BT
+/F1 10 Tf
+62 520 Td
+(Hauptergebnis im Abstract nicht klar formuliert.) Tj
+ET
+BT
+/F2 10 Tf
+44 506 Td
+(Statistische Eckpunkte) Tj
+ET
+BT
+/F1 10 Tf
+62 492 Td
+(- OR 1.14 \(95% CI 1.03-1.27\)) Tj
+ET
+BT
+/F1 10 Tf
+62 478 Td
+(- p=0.01) Tj
+ET
+BT
+/F1 10 Tf
+62 464 Td
+(- 95% CI 1.03-1.27\)) Tj
+ET
+BT
+/F2 10 Tf
+44 450 Td
+(Klinische Einordnung) Tj
+ET
+BT
+/F1 10 Tf
+62 436 Td
+(Hohe potenzielle Praxisrelevanz; relevant für neurovaskuläre Notfallpfade.) Tj
+ET
+BT
+/F2 10 Tf
+44 422 Td
+(Was koennte sich in der Praxis aendern) Tj
+ET
+BT
+/F1 10 Tf
+62 408 Td
+(Hohe potenzielle Praxisrelevanz; relevant für neurovaskuläre Notfallpfade. Signal eher) Tj
+ET
+BT
+/F1 10 Tf
+62 394 Td
+(prozess- oder surrogatbezogen. Im Stroke/Notfall-Board diskutieren und auf lokale) Tj
+ET
+BT
+/F1 10 Tf
+62 380 Td
+(Uebertragbarkeit pruefen.) Tj
+ET
+BT
+/F2 10 Tf
+44 366 Td
+(Limitationen) Tj
+ET
+BT
+/F1 10 Tf
+62 352 Td
+(Keine expliziten Limitationen im Abstract genannt; kritische Volltextbewertung bleibt) Tj
+ET
+BT
+/F1 10 Tf
+62 338 Td
+(erforderlich.) Tj
+ET
+BT
+/F3 10 Tf
+44 324 Td
+(Score Breakdown: Design 22, N 6, Endpunkte 15, Statistik 11, Generalisierbarkeit 6,) Tj
+ET
+BT
+/F3 10 Tf
+44 310 Td
+(Leitlinienpotenzial 5 | Gesamt 65) Tj
+ET
+0.7 w 44 281 m 551 281 l S
+BT
+/F2 15 Tf
+44 276 Td
+(Studie 3: International registry analysis of door-to-needle) Tj
+ET
+BT
+/F2 15 Tf
+44 256 Td
+(optimization in emergency departments) Tj
+ET
+BT
+/F1 9 Tf
+44 236 Td
+(Journal: Neurology | Datum: 2026-01-21 | Laender: Australien, Kanada | PMID: DEMO0002 | DOI:) Tj
+ET
+BT
+/F1 9 Tf
+44 224 Td
+(10.0000/demo.2) Tj
+ET
+BT
+/F2 10 Tf
+44 212 Td
+(Kernbotschaft) Tj
+ET
+BT
+/F1 10 Tf
+62 198 Td
+(Reduced treatment delay with improved disability outcomes.) Tj
+ET
+BT
+/F2 10 Tf
+44 184 Td
+(Studiendesign) Tj
+ET
+BT
+/F1 10 Tf
+62 170 Td
+(Prospective registry including n=2100 in emergency department stroke pathways.) Tj
+ET
+BT
+/F2 10 Tf
+44 156 Td
+(Population) Tj
+ET
+BT
+/F1 10 Tf
+62 142 Td
+(Prospective registry including n=2100 in emergency department stroke pathways.) Tj
+ET
+BT
+/F2 10 Tf
+44 128 Td
+(Primaerer Endpunkt) Tj
+ET
+BT
+/F1 10 Tf
+62 114 Td
+(Reduced treatment delay with improved disability outcomes.) Tj
+ET
+BT
+/F2 10 Tf
+44 100 Td
+(Hauptergebnis) Tj
+ET
+BT
+/F1 10 Tf
+62 86 Td
+(Reduced treatment delay with improved disability outcomes.) Tj
+ET
+BT
+/F2 10 Tf
+44 72 Td
+(Statistische Eckpunkte) Tj
+ET
+BT
+/F1 9 Tf
+491 38 Td
+(Seite 2/3) Tj
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 8 0 R >>
+endobj
+10 0 obj
+<< /Length 1495 >>
+stream
+BT
+/F1 10 Tf
+62 800 Td
+(- RR 0.88 \(95% CI 0.80-0.96\)) Tj
+ET
+BT
+/F1 10 Tf
+62 786 Td
+(- p=0.004) Tj
+ET
+BT
+/F1 10 Tf
+62 772 Td
+(- 95% CI 0.80-0.96\)) Tj
+ET
+BT
+/F2 10 Tf
+44 758 Td
+(Klinische Einordnung) Tj
+ET
+BT
+/F1 10 Tf
+62 744 Td
+(Moderate potenzielle Praxisrelevanz; relevant für neuro-notfallmedizinische) Tj
+ET
+BT
+/F1 10 Tf
+62 730 Td
+(Prozessoptimierung.) Tj
+ET
+BT
+/F2 10 Tf
+44 716 Td
+(Was koennte sich in der Praxis aendern) Tj
+ET
+BT
+/F1 10 Tf
+62 702 Td
+(Moderate potenzielle Praxisrelevanz; relevant für neuro-notfallmedizinische) Tj
+ET
+BT
+/F1 10 Tf
+62 688 Td
+(Prozessoptimierung. Signal auf patientenrelevante Endpunkte vorhanden. Als) Tj
+ET
+BT
+/F1 10 Tf
+62 674 Td
+(beobachtungsrelevante Evidenz einordnen; noch keine direkte SOP-Aenderung.) Tj
+ET
+BT
+/F2 10 Tf
+44 660 Td
+(Limitationen) Tj
+ET
+BT
+/F1 10 Tf
+62 646 Td
+(Evidenzsignal vorhanden, aber potenziell begrenzter Einfluss auf) Tj
+ET
+BT
+/F1 10 Tf
+62 632 Td
+(Leitlinien/Standardprozesse.) Tj
+ET
+BT
+/F3 10 Tf
+44 618 Td
+(Score Breakdown: Design 15, N 15, Endpunkte 5, Statistik 11, Generalisierbarkeit 8,) Tj
+ET
+BT
+/F3 10 Tf
+44 604 Td
+(Leitlinienpotenzial 8 | Gesamt 62) Tj
+ET
+0.7 w 44 575 m 551 575 l S
+BT
+/F2 14 Tf
+44 570 Td
+(Abschluss und Hinweis) Tj
+ET
+BT
+/F1 10 Tf
+44 552 Td
+(Automatische Extraktion kann statistische Details oder Subgruppenbefunde unvollstaendig) Tj
+ET
+BT
+/F1 10 Tf
+44 538 Td
+(erfassen. Vor SOP- oder Leitlinienanpassung ist ein manueller Volltext-Review erforderlich.) Tj
+ET
+BT
+/F1 9 Tf
+491 38 Td
+(Seite 3/3) Tj
+ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 10 0 R >>
+endobj
+xref
+0 12
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000128 00000 n 
+0000000198 00000 n 
+0000000273 00000 n 
+0000000351 00000 n 
+0000004272 00000 n 
+0000004418 00000 n 
+0000008141 00000 n 
+0000008287 00000 n 
+0000009835 00000 n 
+trailer
+<< /Size 12 /Root 1 0 R >>
+startxref
+9983
+%%EOF
