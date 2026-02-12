@@ -193,9 +193,7 @@ def _cell_value(row: pd.Series) -> str:
     if bool(row["arrival_observed"]):
         arr = int(float(row["arrival_delay_minutes"]))
         return f"S:{dep} A:{arr}"
-    if bool(row["effective_arrival_missing"]):
-        return f"S:{dep} A:k.A."
-    return f"S:{dep} A:offen"
+    return f"S:{dep} A:-"
 
 
 def _delay_color(delay: float) -> str:
@@ -217,14 +215,14 @@ def _style_day_cell(value: object) -> str:
     if "Ausfall" in text:
         return "background-color: #7b1fa2; color: white; font-weight: 600;"
 
-    match = re.search(r"S:(-?\d+)\s+A:([-\d]+|k\.A\.|offen)", text)
+    match = re.search(r"S:(-?\d+)\s+A:(-|\d+)", text)
     if not match:
         return ""
 
     dep = int(match.group(1))
     arr_token = match.group(2)
     levels = [dep]
-    if re.fullmatch(r"-?\d+", arr_token):
+    if re.fullmatch(r"\d+", arr_token):
         levels.append(int(arr_token))
     level = max(levels)
     color = _delay_color(level)
@@ -464,7 +462,7 @@ def main() -> None:
     st.set_page_config(page_title="DB Pünktlichkeitsmonitor", layout="wide")
     st.title("DB Pünktlichkeitsmonitor")
     st.caption(
-        "Tagesspalten: S=Start, A=Ankunft (Minuten). A:k.A.=keine Info (zu spät abgefragt), A:offen=noch im 1h-Fenster. Farben: grün <5, orange <=15, rot >15, lila=Ausfall."
+        "Tagesspalten: S=Start, A=Ankunft (Minuten). A:- = keine verlässliche Ankunftsinformation. Farben: grün <5, orange <=15, rot >15, lila=Ausfall."
     )
 
     settings = load_settings()
@@ -503,9 +501,9 @@ def main() -> None:
     st.subheader("Systemstatus")
     last_obs = df["observation_ts"].max()
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Letztes Update", str(last_obs)[:19] if pd.notna(last_obs) else "k.A.")
+    c1.metric("Letztes Update", str(last_obs)[:19] if pd.notna(last_obs) else "-")
     c2.metric("Datensätze gesamt", int(len(df)))
-    c3.metric("Ankunft k.A.", int(df["effective_arrival_missing"].sum()))
+    c3.metric("Ankunft ohne Info", int(df["effective_arrival_missing"].sum()))
     c4.metric("Ankunft offen", int(df["effective_arrival_open"].sum()))
 
 
