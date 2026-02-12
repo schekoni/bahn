@@ -100,6 +100,22 @@ def load_data(db_path: str, timezone: str) -> pd.DataFrame:
     df["effective_arrival_missing"] = df["arrival_info_missing"] | inferred_missing | inferred_missing_past
     df["effective_arrival_open"] = (~df["arrival_observed"]) & (~df["effective_arrival_missing"])
 
+    # Guard against historic false-positive "observed=1" rows created before logic fix:
+    # if observation happened before planned arrival and only on-time fallback exists,
+    # treat arrival as unknown for display.
+    suspicious_prearrival_zero = (
+        df["arrival_observed"]
+        & (df["planned_arrival"].notna())
+        & (df["observation_ts"].dt.tz_localize(None) < df["planned_arrival"])
+        & (df["actual_arrival"].notna())
+        & (df["actual_arrival"] == df["planned_arrival"])
+        & (df["arrival_delay_minutes"] == 0)
+        & (~df["canceled"])
+    )
+    df.loc[suspicious_prearrival_zero, "arrival_observed"] = False
+    df.loc[suspicious_prearrival_zero, "effective_arrival_missing"] = False
+    df.loc[suspicious_prearrival_zero, "effective_arrival_open"] = True
+
     return df
 
 
