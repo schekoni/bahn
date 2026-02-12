@@ -107,7 +107,7 @@ def _parse_plan_generic(
             continue
 
         path_raw = _extract_path(stop)
-        if path_raw:
+        if required_in_path and path_raw:
             path_stations = [x.strip().lower() for x in path_raw.split("|") if x.strip()]
             if required_in_path.lower() not in path_stations:
                 continue
@@ -164,7 +164,9 @@ def parse_arrivals_plan(
         window_start=window_start,
         window_end=window_end,
         mode="arrival",
-        required_in_path=source_station,
+        # Arrival filtering at target station should not require source in path:
+        # path fields can be incomplete/inconsistent depending on train/service.
+        required_in_path="",
     )
 
 
