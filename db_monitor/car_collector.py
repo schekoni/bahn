@@ -49,6 +49,11 @@ def collect_car_observations(settings: Settings, routes: list[CarRoute]) -> list
 
     rows: list[CarObservation] = []
     for route in routes:
+        # Only collect a route once its relevant departure time has started.
+        # Example: Offenburg->Freiburg should not be collected before 16:30.
+        if now.time() < route.target_departure:
+            continue
+
         duration, distance_km = _fetch_route_duration(settings, route)
         rows.append(
             CarObservation(
