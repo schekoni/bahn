@@ -213,6 +213,10 @@ def _cell_value(row: pd.Series) -> str:
     dep_token = "-" if bool(row["effective_departure_unknown"]) else str(int(float(row["delay_minutes"])))
     if bool(row["arrival_observed"]):
         arr = int(float(row["arrival_delay_minutes"]))
+        actual_arrival = row.get("actual_arrival")
+        if pd.notna(actual_arrival):
+            arrival_time = pd.to_datetime(actual_arrival).strftime("%H:%M")
+            return f"S:{dep_token} A:{arr} ({arrival_time})"
         return f"S:{dep_token} A:{arr}"
     return f"S:{dep_token} A:-"
 
