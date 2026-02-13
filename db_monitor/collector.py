@@ -25,6 +25,19 @@ def _minutes_delta(actual: datetime | None, planned: datetime | None) -> int:
     return int((actual - planned).total_seconds() / 60)
 
 
+def _dedupe_stops(stops: list[PlannedStop], mode: str) -> list[PlannedStop]:
+    deduped: list[PlannedStop] = []
+    seen: set[str] = set()
+    for stop in stops:
+        event_time = stop.planned_departure if mode == "departure" else stop.planned_arrival
+        key = stop.train_id or f"{stop.train_name}|{event_time.isoformat() if event_time else ''}"
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(stop)
+    return deduped
+
+
 def _match_arrival_for_departure(
     departure: PlannedStop,
     arrivals: list[PlannedStop],
@@ -97,6 +110,8 @@ def collect_observations(settings: Settings, windows: list[RouteWindow]) -> list
                     window_end=window.end_time,
                 )
             )
+        departures.sort(key=lambda x: x.planned_departure or datetime.max)
+        departures = _dedupe_stops(departures, mode="departure")
 
         arrival_start = window.start_time
         arrival_end = (datetime.combine(service_date, window.end_time) + timedelta(hours=3)).time()
@@ -113,9 +128,8 @@ def collect_observations(settings: Settings, windows: list[RouteWindow]) -> list
                     window_end=arrival_end,
                 )
             )
-
-        departures.sort(key=lambda x: x.planned_departure or datetime.max)
         arrivals.sort(key=lambda x: x.planned_arrival or datetime.max)
+        arrivals = _dedupe_stops(arrivals, mode="arrival")
         used_arrival_ids: set[str] = set()
 
         for dep in departures:
