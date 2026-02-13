@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
   schedule:
     # Runs hourly during daytime only.
+    # Use minute 7 (instead of minute 0) to avoid top-of-hour scheduler congestion.
     # Note: GitHub cron uses UTC.
-    # 05-20 UTC corresponds to:
-    # - Winter (CET): 06:00-21:00
-    # - Summer (CEST): 07:00-22:00
-    - cron: "0 5-20 * * *"
+    # 05-20 UTC at minute 07 corresponds to:
+    # - Winter (CET): 06:07-21:07
+    # - Summer (CEST): 07:07-22:07
+    - cron: "7 5-20 * * *"
 
 permissions:
   contents: write
