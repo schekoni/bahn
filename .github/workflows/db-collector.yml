@@ -3,13 +3,14 @@ name: DB Collector
 on:
   workflow_dispatch:
   schedule:
-    # Runs hourly during daytime only.
-    # Use minute 7 (instead of minute 0) to avoid top-of-hour scheduler congestion.
+    # Runs every 30 minutes during daytime only.
+    # Use minute 07 and 37 (instead of minute 00) to avoid top-of-hour scheduler congestion.
     # Note: GitHub cron uses UTC.
-    # 05-20 UTC at minute 07 corresponds to:
-    # - Winter (CET): 06:07-21:07
-    # - Summer (CEST): 07:07-22:07
+    # 05-20 UTC at minute 07/37 corresponds to:
+    # - Winter (CET): 06:07-21:37
+    # - Summer (CEST): 07:07-22:37
     - cron: "7 5-20 * * *"
+    - cron: "37 5-20 * * *"
 
 permissions:
   contents: write
