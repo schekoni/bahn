@@ -347,16 +347,11 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
 def _build_train_history(train_df: pd.DataFrame) -> pd.DataFrame:
     history_source = train_df.copy()
     history_source.loc[~history_source["arrival_observed"], ["arrival_delay_minutes"]] = pd.NA
-    history_source["effective_delay"] = history_source["arrival_delay_minutes"].where(
-        history_source["arrival_observed"],
-        history_source["delay_minutes"],
-    )
     history = (
         history_source.groupby("service_date", as_index=False)
         .agg(
             start_delay=("delay_minutes", "mean"),
             arrival_delay=("arrival_delay_minutes", "mean"),
-            effective_delay=("effective_delay", "mean"),
             canceled=("canceled", "max"),
             arrival_observed=("arrival_observed", "max"),
         )
@@ -364,7 +359,6 @@ def _build_train_history(train_df: pd.DataFrame) -> pd.DataFrame:
     )
     history["start_delay"] = history["start_delay"].apply(lambda x: int(float(x)) if pd.notna(x) else 0)
     history["arrival_delay"] = history["arrival_delay"].apply(lambda x: int(float(x)) if pd.notna(x) else None)
-    history["effective_delay"] = history["effective_delay"].apply(lambda x: float(x) if pd.notna(x) else None)
     history["service_date"] = pd.to_datetime(history["service_date"])
     return history
 
@@ -467,16 +461,16 @@ def render_train_expandable_charts(df: pd.DataFrame, route_label: str) -> None:
                 latest_date = history["service_date"].max()
                 cutoff_date = latest_date - pd.Timedelta(days=29)
                 last_30 = history[history["service_date"] >= cutoff_date]
-                last_30_effective = last_30["effective_delay"].dropna()
-                if not last_30_effective.empty:
-                    avg_30 = float(last_30_effective.mean())
-                    median_30 = float(last_30_effective.median())
+                last_30_arrival = last_30["arrival_delay"].dropna()
+                if not last_30_arrival.empty:
+                    avg_30 = float(last_30_arrival.mean())
+                    median_30 = float(last_30_arrival.median())
                     fig.add_trace(
                         go.Scatter(
                             x=history["service_date"],
                             y=[avg_30] * len(history),
                             mode="lines",
-                            name=f"Ø Verspätung 30d ({avg_30:.1f})",
+                            name=f"Ø Ankunfts-Verspätung 30d ({avg_30:.1f})",
                             line=dict(color="#2ca02c", width=2, dash="dash"),
                         )
                     )
@@ -485,7 +479,7 @@ def render_train_expandable_charts(df: pd.DataFrame, route_label: str) -> None:
                             x=history["service_date"],
                             y=[median_30] * len(history),
                             mode="lines",
-                            name=f"Median Verspätung 30d ({median_30:.1f})",
+                            name=f"Median Ankunfts-Verspätung 30d ({median_30:.1f})",
                             line=dict(color="#9467bd", width=2, dash="dot"),
                         )
                     )
