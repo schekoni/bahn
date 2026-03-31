@@ -59,8 +59,6 @@ def load_settings() -> Settings:
     # Backward compatibility with earlier variable naming in this project.
     if not api_key:
         api_key = os.getenv("DB_CLIENT_SECRET", "").strip()
-    if not client_id or not api_key:
-        raise ValueError("Set DB_CLIENT_ID and DB_API_KEY in your environment.")
 
     return Settings(
         client_id=client_id,
