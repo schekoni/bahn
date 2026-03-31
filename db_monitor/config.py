@@ -26,8 +26,11 @@ class Settings:
     station_endpoint: str
     timetables_endpoint: str
     database_path: str
+    car_provider: str
     ors_api_key: str
     ors_directions_endpoint: str
+    tomtom_api_key: str
+    tomtom_routing_endpoint: str
 
 
 @dataclass(frozen=True)
@@ -71,9 +74,14 @@ def load_settings() -> Settings:
             "DB_TIMETABLES_ENDPOINT", "https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1"
         ),
         database_path=os.getenv("DATABASE_PATH", "data/train_punctuality.db"),
+        car_provider=os.getenv("CAR_PROVIDER", "ors").strip().lower(),
         ors_api_key=os.getenv("ORS_API_KEY", "").strip(),
         ors_directions_endpoint=os.getenv(
             "ORS_DIRECTIONS_ENDPOINT", "https://api.openrouteservice.org/v2/directions/driving-car"
+        ),
+        tomtom_api_key=os.getenv("TOMTOM_API_KEY", "").strip(),
+        tomtom_routing_endpoint=os.getenv(
+            "TOMTOM_ROUTING_ENDPOINT", "https://api.tomtom.com/routing/1/calculateRoute"
         ),
     )
 

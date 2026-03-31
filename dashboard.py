@@ -198,7 +198,7 @@ def _build_car_commute_series(car_df: pd.DataFrame) -> pd.DataFrame:
 def render_car_summary(car_df: pd.DataFrame) -> None:
     st.subheader("Auto-Fahrtdauer (Pendelzeiten)")
     if car_df.empty:
-        st.info("Auto-Daten noch nicht verfügbar. Setze `ORS_API_KEY` für openrouteservice.")
+        st.info("Auto-Daten noch nicht verfügbar. Setze je nach Provider `TOMTOM_API_KEY` oder `ORS_API_KEY`.")
         return
 
     car_series = _build_car_commute_series(car_df)
