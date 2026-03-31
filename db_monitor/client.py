@@ -12,6 +12,10 @@ from db_monitor.config import Settings
 
 class DBApiClient:
     def __init__(self, settings: Settings) -> None:
+        if not settings.client_id or not settings.api_key:
+            raise ValueError(
+                "Set DB_CLIENT_ID and DB_API_KEY in your local .env environment for data collection."
+            )
         self.settings = settings
         self.session = requests.Session()
         self.session.headers.update(
