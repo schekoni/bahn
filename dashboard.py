@@ -34,6 +34,28 @@ CAR_ROUTE_BY_TRAIN_ROUTE = {
 }
 
 
+def _coerce_datetime_naive(series: pd.Series) -> pd.Series:
+    parsed = pd.to_datetime(series, errors="coerce")
+    if pd.api.types.is_datetime64tz_dtype(parsed):
+        return parsed.dt.tz_localize(None)
+    if pd.api.types.is_datetime64_dtype(parsed):
+        return parsed
+
+    # Fallback for mixed object inputs (aware + naive timestamps).
+    def _to_naive(value: object) -> pd.Timestamp | pd.NaT:
+        ts = pd.to_datetime(value, errors="coerce")
+        if pd.isna(ts):
+            return pd.NaT
+        if getattr(ts, "tzinfo", None) is not None:
+            try:
+                return ts.tz_localize(None)
+            except TypeError:
+                return ts.tz_convert(None)
+        return ts
+
+    return pd.to_datetime(series.map(_to_naive), errors="coerce")
+
+
 def load_data(db_path: str, timezone: str) -> pd.DataFrame:
     with sqlite3.connect(db_path) as con:
         cols = {row[1] for row in con.execute("PRAGMA table_info(observations)").fetchall()}
@@ -70,13 +92,16 @@ def load_data(db_path: str, timezone: str) -> pd.DataFrame:
                 ORDER BY service_date DESC, route_label, planned_departure
                 """,
                 con,
-                parse_dates=["observation_ts", "planned_departure", "planned_arrival", "actual_arrival"],
             )
         except Exception:
             return pd.DataFrame()
 
     if df.empty:
         return df
+
+    for col in ("observation_ts", "planned_departure", "planned_arrival", "actual_arrival"):
+        if col in df.columns:
+            df[col] = _coerce_datetime_naive(df[col])
 
     df["service_date"] = pd.to_datetime(df["service_date"]).dt.date
     df["canceled"] = df["canceled"].astype(bool)
@@ -104,7 +129,7 @@ def load_data(db_path: str, timezone: str) -> pd.DataFrame:
     # Mark these as unknown in the UI.
     df["effective_departure_unknown"] = (
         (~df["canceled"])
-        & (df["observation_ts"].dt.tz_localize(None) < df["planned_departure"])
+        & (df["observation_ts"] < df["planned_departure"])
         & (df["delay_minutes"] == 0)
     )
 
@@ -114,7 +139,7 @@ def load_data(db_path: str, timezone: str) -> pd.DataFrame:
     suspicious_prearrival_zero = (
         df["arrival_observed"]
         & (df["planned_arrival"].notna())
-        & (df["observation_ts"].dt.tz_localize(None) < df["planned_arrival"])
+        & (df["observation_ts"] < df["planned_arrival"])
         & (~df["canceled"])
     )
     df.loc[suspicious_prearrival_zero, "arrival_observed"] = False
