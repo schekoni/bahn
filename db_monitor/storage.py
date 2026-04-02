@@ -197,6 +197,7 @@ class ObservationStore:
                     to_name=excluded.to_name,
                     duration_minutes=excluded.duration_minutes,
                     distance_km=excluded.distance_km
+                WHERE julianday(excluded.observation_ts) < julianday(car_observations.observation_ts)
                 """,
                 [
                     (
@@ -214,3 +215,15 @@ class ObservationStore:
             )
             con.commit()
         return len(rows)
+
+    def existing_car_targets_for_date(self, service_date: str) -> set[tuple[str, str]]:
+        with sqlite3.connect(self.db_path) as con:
+            rows = con.execute(
+                """
+                SELECT route_label, target_departure_time
+                FROM car_observations
+                WHERE service_date = ?
+                """,
+                (service_date,),
+            ).fetchall()
+        return {(str(route_label), str(target_departure_time)) for route_label, target_departure_time in rows}

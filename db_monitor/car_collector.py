@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import requests
@@ -70,7 +70,11 @@ def _fetch_route_duration(settings: Settings, route: CarRoute) -> tuple[int, flo
     raise ValueError(f"Unsupported CAR_PROVIDER '{provider}'. Use 'tomtom' or 'ors'.")
 
 
-def collect_car_observations(settings: Settings, routes: list[CarRoute]) -> list[CarObservation]:
+def collect_car_observations(
+    settings: Settings,
+    routes: list[CarRoute],
+    existing_targets: set[tuple[str, str]] | None = None,
+) -> list[CarObservation]:
     if settings.car_provider == "tomtom" and not settings.tomtom_api_key:
         return []
     if settings.car_provider in {"ors", "openrouteservice"} and not settings.ors_api_key:
@@ -79,12 +83,23 @@ def collect_car_observations(settings: Settings, routes: list[CarRoute]) -> list
     tz = ZoneInfo(settings.timezone)
     now = datetime.now(tz)
     service_date = now.date().isoformat()
-
+    existing = existing_targets or set()
     rows: list[CarObservation] = []
     for route in routes:
+        target_hhmm = route.target_departure.strftime("%H:%M")
+        if (route.label, target_hhmm) in existing:
+            continue
+
+        target_dt = datetime.combine(now.date(), route.target_departure, tzinfo=tz)
+
         # Only collect a route once its relevant departure time has started.
         # Example: Offenburg->Freiburg should not be collected before 16:30.
-        if now.time() < route.target_departure:
+        if now < target_dt:
+            continue
+
+        # Keep car measurements close to the intended commute departure time.
+        # This avoids replacing rush-hour data with late-evening free-flow values.
+        if now > target_dt + timedelta(hours=2):
             continue
 
         duration, distance_km = _fetch_route_duration(settings, route)
@@ -95,10 +110,9 @@ def collect_car_observations(settings: Settings, routes: list[CarRoute]) -> list
                 route_label=route.label,
                 from_name=route.from_name,
                 to_name=route.to_name,
-                target_departure_time=route.target_departure.strftime("%H:%M"),
+                target_departure_time=target_hhmm,
                 duration_minutes=duration,
                 distance_km=distance_km,
             )
         )
-
     return rows
