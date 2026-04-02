@@ -4,6 +4,7 @@ import os
 import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from db_monitor.car_collector import collect_car_observations
 from db_monitor.collector import collect_observations
@@ -52,7 +53,13 @@ def main() -> None:
     inserted = store.upsert_many(rows)
     print(f"Stored {inserted} train observations in {settings.database_path}")
 
-    car_rows = collect_car_observations(settings, load_car_routes())
+    today_local = datetime.now(ZoneInfo(settings.timezone)).date().isoformat()
+    existing_car_targets = store.existing_car_targets_for_date(today_local)
+    car_rows = collect_car_observations(
+        settings,
+        load_car_routes(),
+        existing_targets=existing_car_targets,
+    )
     car_inserted = store.upsert_car_many(car_rows)
     print(f"Stored {car_inserted} car observations in {settings.database_path}")
 
