@@ -64,7 +64,7 @@ Erwartung:
 1. Im Projektordner committen und zu GitHub pushen:
 
 ```bash
-cd "/Users/konradwhittaker/Documents/New project"
+cd "/path/to/project"
 git add .github/workflows/db-collector.yml FREE_CLOUD_SETUP.md README.md dashboard.py
 git commit -m "chore: daytime cloud collector setup"
 git push

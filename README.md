@@ -78,7 +78,7 @@ Lokal auf macOS kannst du `launchd` verwenden (bereits eingerichtet).
 ## Kostenlose Cloud-Variante (ohne eigenen Server)
 
 Dieses Repo enthaelt einen stündlichen GitHub-Workflow:
-- `/Users/konradwhittaker/Documents/New project/.github/workflows/db-collector.yml`
+- `/path/to/project/.github/workflows/db-collector.yml`
 - Trigger: stündlich nur tagsüber (UTC 05:00-20:00)
 - Aufgabe: `run_collection.py` ausfuehren und `data/train_punctuality.db` ins Repo committen
 
@@ -102,8 +102,8 @@ Hinweis:
 Falls du trotzdem lokal per Cron fahren willst:
 
 ```cron
-10 8 * * * cd "/Users/konradwhittaker/Documents/New project" && "/Users/konradwhittaker/Documents/New project/.venv/bin/python" run_collection.py >> "/Users/konradwhittaker/Documents/New project/cron.log" 2>&1
-10 17 * * * cd "/Users/konradwhittaker/Documents/New project" && "/Users/konradwhittaker/Documents/New project/.venv/bin/python" run_collection.py >> "/Users/konradwhittaker/Documents/New project/cron.log" 2>&1
+10 8 * * * cd "/path/to/project" && "/path/to/project/.venv/bin/python" run_collection.py >> "/path/to/project/cron.log" 2>&1
+10 17 * * * cd "/path/to/project" && "/path/to/project/.venv/bin/python" run_collection.py >> "/path/to/project/cron.log" 2>&1
 ```
 
 ## Hinweise zur DB API
@@ -156,7 +156,7 @@ Der PDF-Report ist im Newsletter-Stil aufgebaut:
 ### Monatliche Automation (Cron-Beispiel)
 
 ```cron
-30 7 1 * * cd "/Users/konradwhittaker/Documents/New project" && "/Users/konradwhittaker/Documents/New project/.venv/bin/python" run_neuro_report.py --email "deine.email@example.com" >> "/Users/konradwhittaker/Documents/New project/cron.log" 2>&1
+30 7 1 * * cd "/path/to/project" && "/path/to/project/.venv/bin/python" run_neuro_report.py --email "deine.email@example.com" >> "/path/to/project/cron.log" 2>&1
 ```
 
 ### Was klinisch priorisiert wird

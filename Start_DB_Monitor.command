@@ -1,7 +1,7 @@
 #!/bin/zsh
 set -e
 
-PROJECT_DIR="/Users/konradwhittaker/Documents/New project"
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_FILE="$PROJECT_DIR/manual_run.log"
 
 cd "$PROJECT_DIR"
