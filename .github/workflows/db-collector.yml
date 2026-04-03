@@ -22,6 +22,8 @@ jobs:
     env:
       DB_CLIENT_ID: ${{ secrets.DB_CLIENT_ID }}
       DB_API_KEY: ${{ secrets.DB_API_KEY }}
+      CAR_PROVIDER: tomtom
+      TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
       ORS_API_KEY: ${{ secrets.ORS_API_KEY }}
       TIMEZONE: Europe/Berlin
       DATABASE_PATH: data/train_punctuality.db

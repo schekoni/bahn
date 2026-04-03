@@ -27,7 +27,9 @@ In GitHub Repo:
 Anlegen:
 - `DB_CLIENT_ID`
 - `DB_API_KEY`
-- `ORS_API_KEY` (optional fuer Auto-Fahrzeitvergleich)
+- `CAR_PROVIDER` (optional: `tomtom` oder `ors`; empfohlen: `tomtom`)
+- `TOMTOM_API_KEY` (optional fuer Auto-Fahrzeitvergleich mit Live-Traffic)
+- `ORS_API_KEY` (optional fuer Auto-Fahrzeitvergleich ohne Live-Traffic)
 
 ## 3. Workflow starten und prüfen
 
