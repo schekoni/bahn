@@ -220,12 +220,16 @@ def render_car_summary(car_df: pd.DataFrame) -> None:
 
     latest_date = car_series["service_date"].max()
     latest = car_series[car_series["service_date"] == latest_date]
+    latest_obs_ts = pd.to_datetime(car_df["observation_ts"], errors="coerce").max()
     avg_by_route = (
         car_series.groupby("route_name", as_index=False)["auto_minutes"]
         .mean()
         .rename(columns={"auto_minutes": "avg_auto_minutes"})
     )
-    st.caption(f"Letzter Auto-Messpunkt: {latest_date}")
+    if pd.notna(latest_obs_ts):
+        st.caption(f"Letzter Auto-Messpunkt: {latest_obs_ts.strftime('%d.%m.%Y %H:%M')}")
+    else:
+        st.caption(f"Letzter Auto-Messpunkt: {latest_date}")
     c1, c2 = st.columns(2)
     for col, label in ((c1, "Freiburg -> Offenburg"), (c2, "Offenburg -> Freiburg")):
         row_today = latest[latest["route_name"] == label]
