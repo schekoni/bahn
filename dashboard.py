@@ -399,9 +399,13 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
         prev = row["prev_avg_arr_raw"]
         if pd.isna(cur) or pd.isna(prev):
             return "→"
-        if float(cur) < float(prev):
+        diff = float(cur) - float(prev)
+        # Treat very small differences as unchanged to avoid noisy up/down flips.
+        if abs(diff) < 0.5:
+            return "→"
+        if diff < 0:
             return "↓"
-        if float(cur) > float(prev):
+        if diff > 0:
             return "↑"
         return "→"
 
