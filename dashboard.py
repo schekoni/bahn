@@ -46,6 +46,13 @@ def _clean_reason_text(value: object) -> str:
     return " | ".join(cleaned)
 
 
+def _clean_label_text(value: object) -> str:
+    text = str(value or "").strip()
+    if text.lower() in {"", "none", "null", "nan", "-"}:
+        return ""
+    return text
+
+
 def _coerce_datetime_naive(series: pd.Series) -> pd.Series:
     parsed = pd.to_datetime(series, errors="coerce")
     if pd.api.types.is_datetime64tz_dtype(parsed):
@@ -119,8 +126,8 @@ def load_data(db_path: str, timezone: str) -> pd.DataFrame:
     df["canceled"] = df["canceled"].astype(bool)
     df["arrival_observed"] = df["arrival_observed"].astype(bool)
     df["arrival_info_missing"] = df["arrival_info_missing"].astype(bool)
-    df["train_name"] = df["train_name"].fillna("")
-    df["line"] = df["line"].fillna("")
+    df["train_name"] = df["train_name"].map(_clean_label_text)
+    df["line"] = df["line"].map(_clean_label_text)
     df["departure_reason"] = df["departure_reason"].map(_clean_reason_text)
     df["arrival_reason"] = df["arrival_reason"].map(_clean_reason_text)
     df["departure_hhmm"] = df["planned_departure"].dt.strftime("%H:%M")
