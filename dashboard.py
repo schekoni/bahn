@@ -38,6 +38,9 @@ def _clean_reason_text(value: object) -> str:
     text = str(value or "").strip()
     if text.lower() in {"", "none", "null", "nan", "-"}:
         return ""
+    # Remove placeholder tokens even when embedded in older free-text values.
+    text = re.sub(r"\b(?:none|null|nan)\b", "", text, flags=re.IGNORECASE)
+    text = text.replace("||", "|").strip(" |")
     parts = [p.strip() for p in text.split("|")]
     cleaned = [p for p in parts if p and p.lower() not in {"none", "null", "nan", "-"}]
     return " | ".join(cleaned)
