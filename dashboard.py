@@ -432,6 +432,20 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
             day_cols.append(label)
     result = result.rename(columns=rename_map)
 
+    # Never show placeholder values in day cells.
+    # Missing or placeholder content should be treated as outage in the main matrix.
+    for col in day_cols:
+        if col not in result.columns:
+            continue
+        result[col] = (
+            result[col]
+            .astype("string")
+            .str.replace(r"(?i)\b(?:none|null|nan)\b", "", regex=True)
+            .str.strip()
+            .replace({"": pd.NA, "-": pd.NA})
+            .fillna("Ausfall")
+        )
+
     result = result.drop(columns=["departure_hhmm"])
 
     summary_cols = [summary_col]
