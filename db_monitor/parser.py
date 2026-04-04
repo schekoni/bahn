@@ -6,6 +6,10 @@ from xml.etree import ElementTree as ET
 from db_monitor.models import ChangeInfo, PlannedStop
 
 
+def _is_placeholder_text(value: str) -> bool:
+    return value.strip().lower() in {"", "none", "null", "nan", "-"}
+
+
 def parse_db_time(raw: str) -> datetime:
     value = raw.strip()
     if len(value) < 10:
@@ -56,12 +60,12 @@ def _extract_reasons(stop: ET.Element, node: ET.Element | None) -> str:
             parts: list[str] = []
             for key in ("t", "txt", "cat", "c", "from", "to", "id"):
                 value = (msg.get(key) or "").strip()
-                if value:
+                if value and not _is_placeholder_text(value):
                     parts.append(value)
             text = " ".join(parts).strip()
             if not text:
                 text = (msg.text or "").strip()
-            if text:
+            if text and not _is_placeholder_text(text):
                 raw.append(text)
 
     # Keep first occurrence order and remove duplicates.
