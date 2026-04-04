@@ -575,7 +575,7 @@ def main() -> None:
         fixed_cols = [c for c in summary_cols if c in matrix_display.columns]
         day_view_cols = [c for c in matrix_display.columns if c not in fixed_cols]
 
-        left, right = st.columns([0.78, 0.22], gap="small")
+        left, right = st.columns([0.68, 0.32], gap="small")
         with left:
             st.dataframe(
                 style_matrix(matrix_display[day_view_cols], day_cols),
@@ -586,7 +586,7 @@ def main() -> None:
             st.dataframe(
                 style_matrix(matrix_display[fixed_cols], []),
                 use_container_width=True,
-                hide_index=False,
+                hide_index=True,
             )
 
     # 2) Then train histories, separated by route.
