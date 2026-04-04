@@ -10,7 +10,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from db_monitor.config import load_settings
+from db_monitor.car_collector import _fetch_route_duration
+from db_monitor.config import Settings, load_car_routes, load_settings
 
 
 ROUTE_ORDER = [
@@ -230,6 +231,33 @@ def render_car_summary(car_df: pd.DataFrame) -> None:
         else:
             today_val = int(row_today.iloc[0]["auto_minutes"])
             col.metric(label, f"Ø {avg_val} min", f"Heute: {today_val} min")
+
+
+def render_live_car_check(settings: Settings) -> None:
+    st.markdown("**Live-Check (jetzt)**")
+    if not st.button("Autofahrt jetzt live prüfen", key="live-car-check"):
+        return
+
+    try:
+        routes = load_car_routes()
+        live_rows: list[tuple[str, int]] = []
+        for route in routes:
+            minutes, _ = _fetch_route_duration(settings, route)
+            route_title = ROUTE_TITLES.get(route.label.replace("Car ", ""), route.label.replace("Car ", ""))
+            live_rows.append((route_title, minutes))
+    except Exception as exc:
+        st.error(f"Live-Abfrage fehlgeschlagen: {exc}")
+        return
+
+    checked_at = datetime.now(ZoneInfo(settings.timezone)).strftime("%d.%m.%Y %H:%M:%S")
+    st.caption(f"Live-Abfragezeit: {checked_at}")
+    c1, c2 = st.columns(2)
+    for col, label in ((c1, "Freiburg -> Offenburg"), (c2, "Offenburg -> Freiburg")):
+        value = next((m for route_name, m in live_rows if route_name == label), None)
+        if value is None:
+            col.metric(label, "k.A.")
+        else:
+            col.metric(label, f"{value} min")
 
 
 def _cell_value(row: pd.Series) -> str:
@@ -557,6 +585,7 @@ def main() -> None:
     max_date = max(df["service_date"])
     end_date = st.date_input("Berichts-Enddatum", value=max_date)
     render_car_summary(car_df)
+    render_live_car_check(settings)
 
     route_payloads: list[tuple[str, pd.DataFrame, list[str]]] = []
     for route_label in ROUTE_ORDER:
