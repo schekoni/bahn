@@ -38,7 +38,9 @@ def _clean_reason_text(value: object) -> str:
     text = str(value or "").strip()
     if text.lower() in {"", "none", "null", "nan", "-"}:
         return ""
-    return text
+    parts = [p.strip() for p in text.split("|")]
+    cleaned = [p for p in parts if p and p.lower() not in {"none", "null", "nan", "-"}]
+    return " | ".join(cleaned)
 
 
 def _coerce_datetime_naive(series: pd.Series) -> pd.Series:
