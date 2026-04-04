@@ -297,6 +297,64 @@ def style_matrix(matrix: pd.DataFrame, day_cols: list[str]) -> pd.io.formats.sty
     return styler
 
 
+def render_sticky_matrix(matrix: pd.DataFrame, day_cols: list[str], table_key: str) -> None:
+    styled = style_matrix(matrix, day_cols)
+
+    summary_cols = ["Ø Start-Verspätung (30d)", "Ø Ankunfts-Verspätung (30d)", "Ausfalltage (30d)"]
+    present_summary = [c for c in summary_cols if c in matrix.columns]
+    total_cols = len(matrix.columns)
+    right_offsets: dict[str, int] = {}
+    acc = 0
+    for col in reversed(present_summary):
+        right_offsets[col] = acc
+        acc += 170
+
+    table_styles = [
+        {"selector": "table", "props": [("border-collapse", "separate"), ("border-spacing", "0"), ("min-width", "1400px")]},
+        {"selector": "thead th", "props": [("position", "sticky"), ("top", "0"), ("z-index", "3"), ("background-color", "#f7f9fc")]},
+        {"selector": "th.row_heading", "props": [("position", "sticky"), ("left", "0"), ("z-index", "4"), ("background-color", "#f7f9fc"), ("min-width", "220px")]},
+        {"selector": "th.blank.level0", "props": [("position", "sticky"), ("left", "0"), ("z-index", "5"), ("background-color", "#f7f9fc")]},
+    ]
+
+    for col, right_px in right_offsets.items():
+        col_pos = matrix.columns.get_loc(col)
+        table_styles.extend(
+            [
+                {
+                    "selector": f"th.col_heading.level0.col{col_pos}",
+                    "props": [
+                        ("position", "sticky"),
+                        ("right", f"{right_px}px"),
+                        ("z-index", "6"),
+                        ("background-color", "#f7f9fc"),
+                        ("min-width", "170px"),
+                    ],
+                },
+                {
+                    "selector": f"td.col{col_pos}",
+                    "props": [
+                        ("position", "sticky"),
+                        ("right", f"{right_px}px"),
+                        ("z-index", "2"),
+                        ("background-color", "#ffffff"),
+                        ("min-width", "170px"),
+                    ],
+                },
+            ]
+        )
+
+    styled = styled.set_table_styles(table_styles, overwrite=False)
+    html = styled.to_html()
+    st.markdown(
+        f"""
+<div id="{table_key}" style="overflow-x:auto; width:100%; border: 1px solid #e6e9ef; border-radius: 8px;">
+{html}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
 def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days: int = 30) -> tuple[pd.DataFrame, list[str]]:
     route_df = df[df["route_label"] == route_label].copy()
     if route_df.empty:
@@ -571,8 +629,7 @@ def main() -> None:
             continue
 
         matrix_display = matrix.set_index("Zug")
-        styled = style_matrix(matrix_display, day_cols)
-        st.dataframe(styled, use_container_width=True, hide_index=False)
+        render_sticky_matrix(matrix_display, day_cols, table_key=f"table-{route_label}")
 
     # 2) Then train histories, separated by route.
     for route_label, _, _ in route_payloads:
