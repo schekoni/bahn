@@ -564,6 +564,7 @@ def main() -> None:
         route_payloads.append((route_label, matrix, day_cols))
 
     # 1) Main tables first, one below another.
+    summary_cols = ["Ø Start-Verspätung (30d)", "Ø Ankunfts-Verspätung (30d)", "Ausfalltage (30d)"]
     for route_label, matrix, day_cols in route_payloads:
         st.subheader(ROUTE_TITLES.get(route_label, route_label))
         if matrix.empty:
@@ -571,8 +572,22 @@ def main() -> None:
             continue
 
         matrix_display = matrix.set_index("Zug")
-        styled = style_matrix(matrix_display, day_cols)
-        st.dataframe(styled, use_container_width=True, hide_index=False)
+        fixed_cols = [c for c in summary_cols if c in matrix_display.columns]
+        day_view_cols = [c for c in matrix_display.columns if c not in fixed_cols]
+
+        left, right = st.columns([0.78, 0.22], gap="small")
+        with left:
+            st.dataframe(
+                style_matrix(matrix_display[day_view_cols], day_cols),
+                use_container_width=True,
+                hide_index=False,
+            )
+        with right:
+            st.dataframe(
+                style_matrix(matrix_display[fixed_cols], []),
+                use_container_width=True,
+                hide_index=False,
+            )
 
     # 2) Then train histories, separated by route.
     for route_label, _, _ in route_payloads:
