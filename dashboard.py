@@ -330,13 +330,14 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
     summary = pd.DataFrame({"Zug": avg_arr.index, "avg_arr": avg_arr.values, "median_arr": median_arr.values})
     summary = summary.merge(cancel_days.reset_index().rename(columns={"zug": "Zug"}), on="Zug", how="left")
     summary["ausfalltage"] = summary["ausfalltage"].fillna(0).astype(int)
-    summary["AØ/M&A"] = summary.apply(
-        lambda r: f"{'-' if pd.isna(r['avg_arr']) else int(r['avg_arr'])}/"
-        f"{'-' if pd.isna(r['median_arr']) else int(r['median_arr'])}&"
+    summary_col = "Ankunft: Median / Durchschnitt / Ausfall"
+    summary["Ankunft: Median / Durchschnitt / Ausfall"] = summary.apply(
+        lambda r: f"{'-' if pd.isna(r['median_arr']) else int(r['median_arr'])}/"
+        f"{'-' if pd.isna(r['avg_arr']) else int(r['avg_arr'])}/"
         f"{int(r['ausfalltage'])}",
         axis=1,
     )
-    summary = summary[["Zug", "AØ/M&A"]]
+    summary = summary[["Zug", summary_col]]
 
     result = pivot.merge(summary, on="Zug", how="left")
 
@@ -359,7 +360,7 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
 
     result = result.drop(columns=["departure_hhmm"])
 
-    summary_cols = ["AØ/M&A"]
+    summary_cols = [summary_col]
     ordered_cols = [c for c in result.columns if c not in summary_cols] + summary_cols
     return result[ordered_cols], day_cols
 
@@ -559,7 +560,7 @@ def main() -> None:
         route_payloads.append((route_label, matrix, day_cols))
 
     # 1) Main tables first, one below another.
-    summary_cols = ["AØ/M&A"]
+    summary_cols = ["Ankunft: Median / Durchschnitt / Ausfall"]
     for route_label, matrix, day_cols in route_payloads:
         st.subheader(ROUTE_TITLES.get(route_label, route_label))
         if matrix.empty:
@@ -570,7 +571,7 @@ def main() -> None:
         fixed_cols = [c for c in summary_cols if c in matrix_display.columns]
         day_view_cols = [c for c in matrix_display.columns if c not in fixed_cols]
 
-        left, right = st.columns([0.68, 0.32], gap="small")
+        left, right = st.columns([0.84, 0.16], gap="small")
         with left:
             st.dataframe(
                 style_matrix(matrix_display[day_view_cols], day_cols),
