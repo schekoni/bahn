@@ -34,6 +34,13 @@ CAR_ROUTE_BY_TRAIN_ROUTE = {
 }
 
 
+def _clean_reason_text(value: object) -> str:
+    text = str(value or "").strip()
+    if text.lower() in {"", "none", "null", "nan", "-"}:
+        return ""
+    return text
+
+
 def _coerce_datetime_naive(series: pd.Series) -> pd.Series:
     parsed = pd.to_datetime(series, errors="coerce")
     if pd.api.types.is_datetime64tz_dtype(parsed):
@@ -109,8 +116,8 @@ def load_data(db_path: str, timezone: str) -> pd.DataFrame:
     df["arrival_info_missing"] = df["arrival_info_missing"].astype(bool)
     df["train_name"] = df["train_name"].fillna("")
     df["line"] = df["line"].fillna("")
-    df["departure_reason"] = df["departure_reason"].fillna("")
-    df["arrival_reason"] = df["arrival_reason"].fillna("")
+    df["departure_reason"] = df["departure_reason"].map(_clean_reason_text)
+    df["arrival_reason"] = df["arrival_reason"].map(_clean_reason_text)
     df["departure_hhmm"] = df["planned_departure"].dt.strftime("%H:%M")
     df["zug"] = df.apply(
         lambda r: f"{(r['train_name'] or r['line'] or 'Unbekannt')} | {r['departure_hhmm']}",
@@ -233,7 +240,7 @@ def render_car_summary(car_df: pd.DataFrame) -> None:
 
 
 def _cell_value(row: pd.Series) -> str:
-    if bool(row["canceled"]):
+    if bool(row["canceled"]) or bool(row.get("effective_arrival_missing", False)):
         return "Ausfall"
     dep_token = "-" if bool(row["effective_departure_unknown"]) else str(int(float(row["delay_minutes"])))
     if bool(row["arrival_observed"]):
@@ -297,7 +304,7 @@ def style_matrix(matrix: pd.DataFrame, day_cols: list[str]) -> pd.io.formats.sty
     styler = matrix.style
     if day_cols:
         styler = styler.map(_style_day_cell, subset=day_cols)
-    summary_col = "Median/Mean/Ausfall"
+    summary_col = "Med/Mean/Ausf"
     if summary_col in matrix.columns:
         styler = styler.map(_style_summary_cell, subset=[summary_col])
     return styler
@@ -317,6 +324,7 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
     route_prev = route_df[(route_df["service_date"] >= prev_start) & (route_df["service_date"] <= prev_end)].copy()
 
     route_30["day_cell"] = route_30.apply(_cell_value, axis=1)
+    route_30["display_ausfall"] = route_30["canceled"] | route_30.get("effective_arrival_missing", False)
 
     pivot = (
         route_30.pivot_table(index="zug", columns="service_date", values="day_cell", aggfunc="first")
@@ -326,7 +334,7 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
     )
 
     metric_base = route_30.copy()
-    metric_base.loc[metric_base["canceled"], ["delay_minutes", "arrival_delay_minutes"]] = pd.NA
+    metric_base.loc[metric_base["display_ausfall"], ["delay_minutes", "arrival_delay_minutes"]] = pd.NA
     metric_base.loc[~metric_base["arrival_observed"], ["arrival_delay_minutes"]] = pd.NA
 
     avg_arr_raw = metric_base.groupby("zug", dropna=False)["arrival_delay_minutes"].mean()
@@ -337,7 +345,7 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
         lambda x: int(float(x)) if pd.notna(x) else pd.NA
     )
     cancel_days = (
-        route_30[route_30["canceled"]]
+        route_30[route_30["display_ausfall"]]
         .groupby("zug", dropna=False)["service_date"]
         .nunique()
         .rename("ausfalltage")
@@ -346,7 +354,10 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
     prev_avg_arr_raw = pd.Series(dtype="float64")
     if not route_prev.empty:
         prev_metric_base = route_prev.copy()
-        prev_metric_base.loc[prev_metric_base["canceled"], ["delay_minutes", "arrival_delay_minutes"]] = pd.NA
+        prev_metric_base["display_ausfall"] = prev_metric_base["canceled"] | prev_metric_base.get(
+            "effective_arrival_missing", False
+        )
+        prev_metric_base.loc[prev_metric_base["display_ausfall"], ["delay_minutes", "arrival_delay_minutes"]] = pd.NA
         prev_metric_base.loc[~prev_metric_base["arrival_observed"], ["arrival_delay_minutes"]] = pd.NA
         prev_avg_arr_raw = prev_metric_base.groupby("zug", dropna=False)["arrival_delay_minutes"].mean()
 
@@ -365,7 +376,7 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
         how="left",
     )
     summary["ausfalltage"] = summary["ausfalltage"].fillna(0).astype(int)
-    summary_col = "Median/Mean/Ausfall"
+    summary_col = "Med/Mean/Ausf"
 
     def _trend_symbol(row: pd.Series) -> str:
         cur = row["avg_arr_raw"]
@@ -379,7 +390,7 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
         return "→"
 
     summary[summary_col] = summary.apply(
-        lambda r: f"{_trend_symbol(r)} {'-' if pd.isna(r['median_arr']) else int(r['median_arr'])}/"
+        lambda r: f"{_trend_symbol(r)}{'-' if pd.isna(r['median_arr']) else int(r['median_arr'])}/"
         f"{'-' if pd.isna(r['avg_arr']) else int(r['avg_arr'])}/"
         f"{int(r['ausfalltage'])}",
         axis=1,
@@ -435,11 +446,11 @@ def _reason_stats(train_df: pd.DataFrame) -> pd.DataFrame:
     records: list[dict[str, object]] = []
 
     for _, row in train_df.iterrows():
-        dep_reason = (row.get("departure_reason") or "").strip()
-        arr_reason = (row.get("arrival_reason") or "").strip()
+        dep_reason = _clean_reason_text(row.get("departure_reason"))
+        arr_reason = _clean_reason_text(row.get("arrival_reason"))
         dep_delay = int(float(row.get("delay_minutes", 0) or 0))
         arr_delay = int(float(row.get("arrival_delay_minutes", 0) or 0))
-        canceled = bool(row.get("canceled", False))
+        canceled = bool(row.get("canceled", False)) or bool(row.get("effective_arrival_missing", False))
 
         if canceled:
             records.append(
@@ -607,7 +618,7 @@ def main() -> None:
         route_payloads.append((route_label, matrix, day_cols))
 
     # 1) Main tables first, one below another.
-    summary_cols = ["Median/Mean/Ausfall"]
+    summary_cols = ["Med/Mean/Ausf"]
     for route_label, matrix, day_cols in route_payloads:
         st.subheader(ROUTE_TITLES.get(route_label, route_label))
         if matrix.empty:
@@ -618,7 +629,7 @@ def main() -> None:
         fixed_cols = [c for c in summary_cols if c in matrix_display.columns]
         day_view_cols = [c for c in matrix_display.columns if c not in fixed_cols]
 
-        left, right = st.columns([0.84, 0.16], gap="small")
+        left, right = st.columns([0.87, 0.13], gap="small")
         with left:
             st.dataframe(
                 style_matrix(matrix_display[day_view_cols], day_cols),
