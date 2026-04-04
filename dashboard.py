@@ -462,6 +462,12 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
             for val, outages in zip(result[summary_col], outage_counts, strict=False)
         ]
 
+    # Hide trains that did not run at all in the selected 30-day window.
+    # If every visible day cell is "Ausfall", the train is omitted from the matrix.
+    if day_cols:
+        ran_mask = ~(result[day_cols] == "Ausfall").all(axis=1)
+        result = result[ran_mask].copy()
+
     result = result.drop(columns=["departure_hhmm"])
 
     summary_cols = [summary_col]
