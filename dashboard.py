@@ -446,6 +446,22 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
             .fillna("Ausfall")
         )
 
+    # Keep outage count in compact stats aligned with what is shown in the day matrix.
+    if day_cols and summary_col in result.columns:
+        outage_counts = (result[day_cols] == "Ausfall").sum(axis=1).astype(int)
+
+        def _replace_outage_count(value: object, outages: int) -> str:
+            text = str(value or "")
+            parts = text.split("/", 2)
+            if len(parts) != 3:
+                return text
+            return f"{parts[0]}/{parts[1]}/{outages}"
+
+        result[summary_col] = [
+            _replace_outage_count(val, outages)
+            for val, outages in zip(result[summary_col], outage_counts, strict=False)
+        ]
+
     result = result.drop(columns=["departure_hhmm"])
 
     summary_cols = [summary_col]
