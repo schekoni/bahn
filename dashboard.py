@@ -288,12 +288,6 @@ def style_matrix(matrix: pd.DataFrame, day_cols: list[str]) -> pd.io.formats.sty
     styler = matrix.style
     if day_cols:
         styler = styler.map(_style_day_cell, subset=day_cols)
-
-    if "Ø Start-Verspätung (30d)" in matrix.columns:
-        styler = styler.format({"Ø Start-Verspätung (30d)": "{:.0f}"})
-    if "Ø Ankunfts-Verspätung (30d)" in matrix.columns:
-        styler = styler.format({"Ø Ankunfts-Verspätung (30d)": "{:.0f}"})
-
     return styler
 
 
@@ -320,28 +314,29 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
     metric_base.loc[metric_base["canceled"], ["delay_minutes", "arrival_delay_minutes"]] = pd.NA
     metric_base.loc[~metric_base["arrival_observed"], ["arrival_delay_minutes"]] = pd.NA
 
-    avg_dep = metric_base.groupby("zug", dropna=False)["delay_minutes"].mean().apply(
+    avg_arr = metric_base.groupby("zug", dropna=False)["arrival_delay_minutes"].mean().apply(
         lambda x: int(float(x)) if pd.notna(x) else pd.NA
     )
-    avg_arr = metric_base.groupby("zug", dropna=False)["arrival_delay_minutes"].mean().apply(
+    median_arr = metric_base.groupby("zug", dropna=False)["arrival_delay_minutes"].median().apply(
         lambda x: int(float(x)) if pd.notna(x) else pd.NA
     )
     cancel_days = (
         route_30[route_30["canceled"]]
         .groupby("zug", dropna=False)["service_date"]
         .nunique()
-        .rename("Ausfalltage (30d)")
+        .rename("ausfalltage")
     )
 
-    summary = pd.DataFrame(
-        {
-            "Zug": avg_dep.index,
-            "Ø Start-Verspätung (30d)": avg_dep.values,
-            "Ø Ankunfts-Verspätung (30d)": avg_arr.values,
-        }
-    )
+    summary = pd.DataFrame({"Zug": avg_arr.index, "avg_arr": avg_arr.values, "median_arr": median_arr.values})
     summary = summary.merge(cancel_days.reset_index().rename(columns={"zug": "Zug"}), on="Zug", how="left")
-    summary["Ausfalltage (30d)"] = summary["Ausfalltage (30d)"].fillna(0).astype(int)
+    summary["ausfalltage"] = summary["ausfalltage"].fillna(0).astype(int)
+    summary["AØ/M&A"] = summary.apply(
+        lambda r: f"{'-' if pd.isna(r['avg_arr']) else int(r['avg_arr'])}/"
+        f"{'-' if pd.isna(r['median_arr']) else int(r['median_arr'])}&"
+        f"{int(r['ausfalltage'])}",
+        axis=1,
+    )
+    summary = summary[["Zug", "AØ/M&A"]]
 
     result = pivot.merge(summary, on="Zug", how="left")
 
@@ -364,7 +359,7 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
 
     result = result.drop(columns=["departure_hhmm"])
 
-    summary_cols = ["Ø Start-Verspätung (30d)", "Ø Ankunfts-Verspätung (30d)", "Ausfalltage (30d)"]
+    summary_cols = ["AØ/M&A"]
     ordered_cols = [c for c in result.columns if c not in summary_cols] + summary_cols
     return result[ordered_cols], day_cols
 
@@ -564,7 +559,7 @@ def main() -> None:
         route_payloads.append((route_label, matrix, day_cols))
 
     # 1) Main tables first, one below another.
-    summary_cols = ["Ø Start-Verspätung (30d)", "Ø Ankunfts-Verspätung (30d)", "Ausfalltage (30d)"]
+    summary_cols = ["AØ/M&A"]
     for route_label, matrix, day_cols in route_payloads:
         st.subheader(ROUTE_TITLES.get(route_label, route_label))
         if matrix.empty:
