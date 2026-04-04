@@ -311,7 +311,7 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
 
     pivot = (
         route_30.pivot_table(index="zug", columns="service_date", values="day_cell", aggfunc="first")
-        .sort_index(axis=1)
+        .sort_index(axis=1, ascending=False)
         .reset_index()
         .rename(columns={"zug": "Zug"})
     )
