@@ -297,7 +297,7 @@ def style_matrix(matrix: pd.DataFrame, day_cols: list[str]) -> pd.io.formats.sty
     styler = matrix.style
     if day_cols:
         styler = styler.map(_style_day_cell, subset=day_cols)
-    summary_col = "Median / Durchschnitt / Ausfall"
+    summary_col = "Median/Mean/Ausfall"
     if summary_col in matrix.columns:
         styler = styler.map(_style_summary_cell, subset=[summary_col])
     return styler
@@ -365,7 +365,7 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
         how="left",
     )
     summary["ausfalltage"] = summary["ausfalltage"].fillna(0).astype(int)
-    summary_col = "Median / Durchschnitt / Ausfall"
+    summary_col = "Median/Mean/Ausfall"
 
     def _trend_symbol(row: pd.Series) -> str:
         cur = row["avg_arr_raw"]
@@ -607,7 +607,7 @@ def main() -> None:
         route_payloads.append((route_label, matrix, day_cols))
 
     # 1) Main tables first, one below another.
-    summary_cols = ["Median / Durchschnitt / Ausfall"]
+    summary_cols = ["Median/Mean/Ausfall"]
     for route_label, matrix, day_cols in route_payloads:
         st.subheader(ROUTE_TITLES.get(route_label, route_label))
         if matrix.empty:
