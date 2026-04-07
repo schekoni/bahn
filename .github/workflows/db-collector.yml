@@ -12,6 +12,9 @@ on:
     - cron: "7 5-20 * * *"
     - cron: "37 5-20 * * *"
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 permissions:
   contents: write
 
