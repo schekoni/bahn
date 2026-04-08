@@ -49,12 +49,17 @@ def main() -> None:
     store = ObservationStore(settings.database_path)
     store.initialize()
 
-    rows = collect_observations(settings, windows)
+    today_local = datetime.now(ZoneInfo(settings.timezone)).date()
+    history_start = (today_local - timedelta(days=90)).isoformat()
+    history_end = (today_local - timedelta(days=1)).isoformat()
+    allowed_train_names = store.historical_train_names_by_route(history_start, history_end)
+
+    rows = collect_observations(settings, windows, allowed_train_names_by_route=allowed_train_names)
     inserted = store.upsert_many(rows)
     print(f"Stored {inserted} train observations in {settings.database_path}")
 
-    today_local = datetime.now(ZoneInfo(settings.timezone)).date().isoformat()
-    existing_car_targets = store.existing_car_targets_for_date(today_local)
+    today_local_str = today_local.isoformat()
+    existing_car_targets = store.existing_car_targets_for_date(today_local_str)
     car_rows = collect_car_observations(
         settings,
         load_car_routes(),

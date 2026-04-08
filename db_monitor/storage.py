@@ -227,3 +227,22 @@ class ObservationStore:
                 (service_date,),
             ).fetchall()
         return {(str(route_label), str(target_departure_time)) for route_label, target_departure_time in rows}
+
+    def historical_train_names_by_route(self, start_service_date: str, end_service_date: str) -> dict[str, set[str]]:
+        with sqlite3.connect(self.db_path) as con:
+            rows = con.execute(
+                """
+                SELECT route_label, train_name
+                FROM observations
+                WHERE service_date >= ?
+                  AND service_date <= ?
+                  AND train_name IS NOT NULL
+                  AND trim(train_name) != ''
+                GROUP BY route_label, train_name
+                """,
+                (start_service_date, end_service_date),
+            ).fetchall()
+        result: dict[str, set[str]] = {}
+        for route_label, train_name in rows:
+            result.setdefault(str(route_label), set()).add(str(train_name))
+        return result
