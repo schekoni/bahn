@@ -82,7 +82,11 @@ def _match_arrival_for_departure(
     return chosen
 
 
-def collect_observations(settings: Settings, windows: list[RouteWindow]) -> list[Observation]:
+def collect_observations(
+    settings: Settings,
+    windows: list[RouteWindow],
+    allowed_train_names_by_route: dict[str, set[str]] | None = None,
+) -> list[Observation]:
     tz = ZoneInfo(settings.timezone)
     now = datetime.now(tz)
     now_local_naive = now.replace(tzinfo=None)
@@ -135,6 +139,13 @@ def collect_observations(settings: Settings, windows: list[RouteWindow]) -> list
         for dep in departures:
             dep_change = source_changes.get(dep.train_id)
             matched_arr = _match_arrival_for_departure(dep, arrivals, used_arrival_ids)
+            if matched_arr is None:
+                # Target station plan can be empty for some hours/stations.
+                # In that case, fall back to historically known trains for this route
+                # instead of accepting all source departures.
+                allowed = (allowed_train_names_by_route or {}).get(window.label, set())
+                if allowed and dep.train_name not in allowed:
+                    continue
             arr_change = target_changes.get(matched_arr.train_id) if matched_arr else None
 
             actual_departure = dep_change.changed_departure if dep_change else None
