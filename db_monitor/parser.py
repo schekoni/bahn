@@ -90,7 +90,8 @@ def _parse_plan_generic(
     required_in_path: str,
 ) -> list[PlannedStop]:
     root = ET.fromstring(xml_payload)
-    rows: list[PlannedStop] = []
+    rows_all: list[PlannedStop] = []
+    rows_path_match: list[PlannedStop] = []
 
     for stop in root.findall("s"):
         train_id = stop.get("id")
@@ -110,26 +111,33 @@ def _parse_plan_generic(
         if event_time.time() < window_start or event_time.time() > window_end:
             continue
 
+        row = PlannedStop(
+            train_id=train_id,
+            train_name=train_name,
+            line=line,
+            source_station=source_station,
+            target_station=target_station,
+            planned_departure=planned_departure,
+            planned_arrival=planned_arrival,
+            route_label=route_label,
+        )
+        rows_all.append(row)
+
         path_raw = _extract_path(stop)
         if required_in_path and path_raw:
             path_stations = [x.strip().lower() for x in path_raw.split("|") if x.strip()]
-            if required_in_path.lower() not in path_stations:
-                continue
+            target = required_in_path.lower().strip()
+            # Robust match: accept exact station name or substrings both ways
+            # to tolerate minor provider naming variations.
+            if any(target == s or target in s or s in target for s in path_stations):
+                rows_path_match.append(row)
+        elif not required_in_path:
+            rows_path_match.append(row)
 
-        rows.append(
-            PlannedStop(
-                train_id=train_id,
-                train_name=train_name,
-                line=line,
-                source_station=source_station,
-                target_station=target_station,
-                planned_departure=planned_departure,
-                planned_arrival=planned_arrival,
-                route_label=route_label,
-            )
-        )
-
-    return rows
+    if not required_in_path:
+        return rows_all
+    # Fallback: if provider omits/changes path strings, avoid hard drop to zero.
+    return rows_path_match or rows_all
 
 
 def parse_departures_plan(
