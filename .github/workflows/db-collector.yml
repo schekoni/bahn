@@ -3,14 +3,14 @@ name: DB Collector
 on:
   workflow_dispatch:
   schedule:
-    # Runs every 30 minutes during daytime only.
-    # Use minute 07 and 37 (instead of minute 00) to avoid top-of-hour scheduler congestion.
+    # Target local sampling times: 06:30 and 16:30 (Europe/Berlin).
+    # GitHub cron is UTC and has no timezone support, so we schedule both possible UTC slots
+    # across DST and let collector dedup to one sample per route/day.
     # Note: GitHub cron uses UTC.
-    # 05-20 UTC at minute 07/37 corresponds to:
-    # - Winter (CET): 06:07-21:37
-    # - Summer (CEST): 07:07-22:37
-    - cron: "7 5-20 * * *"
-    - cron: "37 5-20 * * *"
+    # Morning 06:30 local -> 04:30 UTC (summer), 05:30 UTC (winter)
+    - cron: "30 4,5 * * *"
+    # Afternoon 16:30 local -> 14:30 UTC (summer), 15:30 UTC (winter)
+    - cron: "30 14,15 * * *"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -34,10 +34,12 @@ jobs:
       MORNING_TARGET_EVA: 8000290
       MORNING_START: "06:00"
       MORNING_END: "08:00"
+      CAR_MORNING_TIME: "06:30"
       AFTERNOON_SOURCE_EVA: 8000290
       AFTERNOON_TARGET_EVA: 8000107
       AFTERNOON_START: "15:30"
       AFTERNOON_END: "17:30"
+      CAR_AFTERNOON_TIME: "16:30"
     steps:
       - name: Checkout
         uses: actions/checkout@v4

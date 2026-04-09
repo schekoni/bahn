@@ -119,7 +119,7 @@ def load_car_routes() -> list[CarRoute]:
             from_lon=_parse_float(os.getenv("CAR_MORNING_FROM_LON", "7.8419")),
             to_lat=_parse_float(os.getenv("CAR_MORNING_TO_LAT", "48.4730")),
             to_lon=_parse_float(os.getenv("CAR_MORNING_TO_LON", "7.9468")),
-            target_departure=_parse_time(os.getenv("CAR_MORNING_TIME", "06:45")),
+            target_departure=_parse_time(os.getenv("CAR_MORNING_TIME", "06:30")),
         ),
         CarRoute(
             label="Car Afternoon Offenburg->Freiburg",
