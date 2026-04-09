@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from db_monitor.client import DBApiClient
@@ -86,6 +86,7 @@ def collect_observations(
     settings: Settings,
     windows: list[RouteWindow],
     allowed_train_names_by_route: dict[str, set[str]] | None = None,
+    fallback_departure_times_by_route_train: dict[tuple[str, str], time] | None = None,
 ) -> list[Observation]:
     tz = ZoneInfo(settings.timezone)
     now = datetime.now(tz)
@@ -135,6 +136,34 @@ def collect_observations(
         arrivals.sort(key=lambda x: x.planned_arrival or datetime.max)
         arrivals = _dedupe_stops(arrivals, mode="arrival")
         used_arrival_ids: set[str] = set()
+
+        # Fallback when source plan is empty: reconstruct route departures from known
+        # historical departure times and today's target-station arrivals.
+        if not departures and arrivals and fallback_departure_times_by_route_train:
+            synthesized: list[PlannedStop] = []
+            for arr in arrivals:
+                dep_t = fallback_departure_times_by_route_train.get((window.label, arr.train_name))
+                if dep_t is None:
+                    continue
+                if dep_t < window.start_time or dep_t > window.end_time:
+                    continue
+                synthesized.append(
+                    PlannedStop(
+                        train_id=arr.train_id,
+                        train_name=arr.train_name,
+                        line=arr.line,
+                        source_station=window.source_station,
+                        target_station=window.target_station,
+                        planned_departure=datetime.combine(service_date, dep_t),
+                        planned_arrival=arr.planned_arrival,
+                        route_label=window.label,
+                    )
+                )
+            if synthesized:
+                departures = _dedupe_stops(
+                    sorted(synthesized, key=lambda x: x.planned_departure or datetime.max),
+                    mode="departure",
+                )
 
         for dep in departures:
             dep_change = source_changes.get(dep.train_id)

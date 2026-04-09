@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import time
 from pathlib import Path
 
 from db_monitor.models import CarObservation, Observation
@@ -245,4 +246,35 @@ class ObservationStore:
         result: dict[str, set[str]] = {}
         for route_label, train_name in rows:
             result.setdefault(str(route_label), set()).add(str(train_name))
+        return result
+
+    def historical_departure_times_by_route_train(
+        self, start_service_date: str, end_service_date: str
+    ) -> dict[tuple[str, str], time]:
+        with sqlite3.connect(self.db_path) as con:
+            rows = con.execute(
+                """
+                SELECT route_label, train_name, substr(planned_departure, 12, 5) AS hhmm, COUNT(*) AS cnt
+                FROM observations
+                WHERE service_date >= ?
+                  AND service_date <= ?
+                  AND train_name IS NOT NULL
+                  AND trim(train_name) != ''
+                  AND planned_departure IS NOT NULL
+                GROUP BY route_label, train_name, hhmm
+                ORDER BY route_label, train_name, cnt DESC, hhmm
+                """,
+                (start_service_date, end_service_date),
+            ).fetchall()
+
+        result: dict[tuple[str, str], time] = {}
+        for route_label, train_name, hhmm, _ in rows:
+            key = (str(route_label), str(train_name))
+            if key in result:
+                continue
+            try:
+                hh, mm = str(hhmm).split(":", maxsplit=1)
+                result[key] = time(hour=int(hh), minute=int(mm))
+            except Exception:
+                continue
         return result

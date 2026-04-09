@@ -53,8 +53,14 @@ def main() -> None:
     history_start = (today_local - timedelta(days=90)).isoformat()
     history_end = (today_local - timedelta(days=1)).isoformat()
     allowed_train_names = store.historical_train_names_by_route(history_start, history_end)
+    fallback_dep_times = store.historical_departure_times_by_route_train(history_start, history_end)
 
-    rows = collect_observations(settings, windows, allowed_train_names_by_route=allowed_train_names)
+    rows = collect_observations(
+        settings,
+        windows,
+        allowed_train_names_by_route=allowed_train_names,
+        fallback_departure_times_by_route_train=fallback_dep_times,
+    )
     inserted = store.upsert_many(rows)
     print(f"Stored {inserted} train observations in {settings.database_path}")
 
