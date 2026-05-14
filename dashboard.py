@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from datetime import datetime
-from datetime import date, timedelta
+from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -19,13 +18,8 @@ ROUTE_ORDER = [
 ]
 
 ROUTE_TITLES = {
-    "Morning Freiburg->Offenburg": "Freiburg -> Offenburg",
-    "Afternoon Offenburg->Freiburg": "Offenburg -> Freiburg",
-}
-
-COMMUTE_TARGET_TIME = {
-    "Morning Freiburg->Offenburg": "06:45",
-    "Afternoon Offenburg->Freiburg": "16:30",
+    "Morning Freiburg->Offenburg": "Freiburg → Offenburg",
+    "Afternoon Offenburg->Freiburg": "Offenburg → Freiburg",
 }
 
 CAR_ROUTE_BY_TRAIN_ROUTE = {
@@ -33,12 +27,23 @@ CAR_ROUTE_BY_TRAIN_ROUTE = {
     "Afternoon Offenburg->Freiburg": "Car Afternoon Offenburg->Freiburg",
 }
 
+SUMMARY_COLS = ["Trend", "Med.", "Ø", "Ausf."]
+
+_LEGEND_HTML = """
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0 14px 0">
+  <span style="background:#2e7d32;color:white;padding:3px 11px;border-radius:12px;font-size:.78em;font-weight:600">&lt; 5 min ✓</span>
+  <span style="background:#ef6c00;color:white;padding:3px 11px;border-radius:12px;font-size:.78em;font-weight:600">5 – 15 min</span>
+  <span style="background:#c62828;color:white;padding:3px 11px;border-radius:12px;font-size:.78em;font-weight:600">&gt; 15 min</span>
+  <span style="background:#7b1fa2;color:white;padding:3px 11px;border-radius:12px;font-size:.78em;font-weight:600">Ausfall</span>
+  <span style="color:#455a64;font-size:.78em;padding:3px 0">S = Abfahrt &nbsp;·&nbsp; A = Ankunft (Minuten Verspätung)</span>
+</div>
+"""
+
 
 def _clean_reason_text(value: object) -> str:
     text = str(value or "").strip()
     if text.lower() in {"", "none", "null", "nan", "-"}:
         return ""
-    # Remove placeholder tokens even when embedded in older free-text values.
     text = re.sub(r"\b(?:none|null|nan)\b", "", text, flags=re.IGNORECASE)
     text = text.replace("||", "|").strip(" |")
     parts = [p.strip() for p in text.split("|")]
@@ -55,12 +60,11 @@ def _clean_label_text(value: object) -> str:
 
 def _coerce_datetime_naive(series: pd.Series) -> pd.Series:
     parsed = pd.to_datetime(series, errors="coerce")
-    if pd.api.types.is_datetime64tz_dtype(parsed):
+    if isinstance(parsed.dtype, pd.DatetimeTZDtype):
         return parsed.dt.tz_localize(None)
-    if pd.api.types.is_datetime64_dtype(parsed):
+    if parsed.dtype.kind == "M":
         return parsed
 
-    # Fallback for mixed object inputs (aware + naive timestamps).
     def _to_naive(value: object) -> pd.Timestamp | pd.NaT:
         ts = pd.to_datetime(value, errors="coerce")
         if pd.isna(ts):
@@ -144,17 +148,12 @@ def load_data(db_path: str, timezone: str) -> pd.DataFrame:
     df["effective_arrival_missing"] = df["arrival_info_missing"] | inferred_missing | inferred_missing_past
     df["effective_arrival_open"] = (~df["arrival_observed"]) & (~df["effective_arrival_missing"])
 
-    # Departure can be falsely shown as 0 before scheduled departure time.
-    # Mark these as unknown in the UI.
     df["effective_departure_unknown"] = (
         (~df["canceled"])
         & (df["observation_ts"] < df["planned_departure"])
         & (df["delay_minutes"] == 0)
     )
 
-    # Guard against historic false-positive "observed=1" rows created before logic fix:
-    # if observation happened before planned arrival and only on-time fallback exists,
-    # treat arrival as unknown for display.
     suspicious_prearrival_zero = (
         df["arrival_observed"]
         & (df["planned_arrival"].notna())
@@ -214,47 +213,6 @@ def _build_car_commute_series(car_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def render_car_summary(car_df: pd.DataFrame) -> None:
-    st.subheader("Auto-Fahrtdauer (Pendelzeiten)")
-    if car_df.empty:
-        st.info("Auto-Daten noch nicht verfügbar. Setze je nach Provider `TOMTOM_API_KEY` oder `ORS_API_KEY`.")
-        return
-
-    car_series = _build_car_commute_series(car_df)
-    if car_series.empty:
-        st.info("Noch keine Auto-Daten vorhanden.")
-        return
-
-    car_series["route_name"] = car_series["route_label"].map(ROUTE_TITLES).fillna(car_series["route_label"])
-    car_series = car_series.sort_values(["service_date", "route_name"])
-
-    latest_date = car_series["service_date"].max()
-    latest = car_series[car_series["service_date"] == latest_date]
-    latest_obs_ts = pd.to_datetime(car_df["observation_ts"], errors="coerce").max()
-    avg_by_route = (
-        car_series.groupby("route_name", as_index=False)["auto_minutes"]
-        .mean()
-        .rename(columns={"auto_minutes": "avg_auto_minutes"})
-    )
-    if pd.notna(latest_obs_ts):
-        st.caption(f"Letzter Auto-Messpunkt: {latest_obs_ts.strftime('%d.%m.%Y %H:%M')}")
-    else:
-        st.caption(f"Letzter Auto-Messpunkt: {latest_date}")
-    c1, c2 = st.columns(2)
-    for col, label in ((c1, "Freiburg -> Offenburg"), (c2, "Offenburg -> Freiburg")):
-        row_today = latest[latest["route_name"] == label]
-        row_avg = avg_by_route[avg_by_route["route_name"] == label]
-        if row_avg.empty:
-            col.metric(label, "k.A.")
-            continue
-        avg_val = int(round(float(row_avg.iloc[0]["avg_auto_minutes"])))
-        if row_today.empty:
-            col.metric(label, f"Ø {avg_val} min")
-        else:
-            today_val = int(row_today.iloc[0]["auto_minutes"])
-            col.metric(label, f"Ø {avg_val} min", f"Heute: {today_val} min")
-
-
 def _cell_value(row: pd.Series) -> str:
     if bool(row["canceled"]) or bool(row.get("effective_arrival_missing", False)):
         return "Ausfall"
@@ -271,27 +229,23 @@ def _cell_value(row: pd.Series) -> str:
 
 def _delay_color(delay: float) -> str:
     if delay < 5:
-        return "#2e7d32"  # green
+        return "#2e7d32"
     if delay <= 15:
-        return "#ef6c00"  # orange
-    return "#c62828"  # red
+        return "#ef6c00"
+    return "#c62828"
 
 
 def _style_day_cell(value: object) -> str:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return ""
-
     text = str(value)
     if not text:
         return ""
-
     if "Ausfall" in text:
         return "background-color: #7b1fa2; color: white; font-weight: 600;"
-
     match = re.search(r"S:(-|\d+)\s+A:(-|\d+)", text)
     if not match:
         return ""
-
     dep_token = match.group(1)
     arr_token = match.group(2)
     levels: list[int] = []
@@ -307,34 +261,85 @@ def _style_day_cell(value: object) -> str:
     return f"background-color: {color}; color: {text_color}; font-weight: 600;"
 
 
-def _style_summary_cell(value: object) -> str:
-    text = str(value)
-    if text.startswith("↓"):
+def _style_weekend_day_cell(value: object) -> str:
+    base = _style_day_cell(value)
+    border = "border-left: 3px solid #90a4ae;"
+    return f"{base} {border}" if base else f"background-color: #f0f4f8; {border}"
+
+
+def _style_trend_cell(value: object) -> str:
+    text = str(value or "")
+    if text == "↓":
         return "color: #2e7d32; font-weight: 700;"
-    if text.startswith("↑"):
+    if text == "↑":
         return "color: #c62828; font-weight: 700;"
-    return "color: #455a64; font-weight: 600;"
+    return "color: #90a4ae; font-weight: 600;"
 
 
-def style_matrix(matrix: pd.DataFrame, day_cols: list[str]) -> pd.io.formats.style.Styler:
+def _style_metric_cell(value: object) -> str:
+    text = str(value or "")
+    if text in {"-", ""}:
+        return "color: #90a4ae;"
+    try:
+        v = int(text)
+    except ValueError:
+        return ""
+    color = _delay_color(v)
+    text_color = "white" if color in {"#2e7d32", "#c62828"} else "black"
+    return f"background-color: {color}; color: {text_color}; font-weight: 600;"
+
+
+def _style_ausfall_count_cell(value: object) -> str:
+    text = str(value or "")
+    try:
+        v = int(text)
+    except ValueError:
+        return ""
+    if v == 0:
+        return "color: #90a4ae;"
+    if v <= 2:
+        return "color: #ef6c00; font-weight: 600;"
+    return "background-color: #7b1fa2; color: white; font-weight: 600;"
+
+
+def style_matrix(
+    matrix: pd.DataFrame,
+    day_cols: list[str],
+    weekend_cols: list[str] | None = None,
+) -> pd.io.formats.style.Styler:
     styler = matrix.style
-    if day_cols:
-        styler = styler.map(_style_day_cell, subset=day_cols)
-    summary_col = "Med/Mean/Ausf"
-    if summary_col in matrix.columns:
-        styler = styler.map(_style_summary_cell, subset=[summary_col])
+    wknd = set(weekend_cols or [])
+    non_wknd_day = [c for c in day_cols if c not in wknd and c in matrix.columns]
+    wknd_day = [c for c in day_cols if c in wknd and c in matrix.columns]
+
+    if non_wknd_day:
+        styler = styler.map(_style_day_cell, subset=non_wknd_day)
+    for wknd_col in wknd_day:
+        styler = styler.map(_style_weekend_day_cell, subset=[wknd_col])
+
+    if "Trend" in matrix.columns:
+        styler = styler.map(_style_trend_cell, subset=["Trend"])
+    if "Med." in matrix.columns:
+        styler = styler.map(_style_metric_cell, subset=["Med."])
+    if "Ø" in matrix.columns:
+        styler = styler.map(_style_metric_cell, subset=["Ø"])
+    if "Ausf." in matrix.columns:
+        styler = styler.map(_style_ausfall_count_cell, subset=["Ausf."])
+
     return styler
 
 
-def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days: int = 30) -> tuple[pd.DataFrame, list[str]]:
+def build_route_matrix(
+    df: pd.DataFrame, route_label: str, end_date: date, days: int = 30
+) -> tuple[pd.DataFrame, list[str], list[str]]:
     route_df = df[df["route_label"] == route_label].copy()
     if route_df.empty:
-        return route_df, []
+        return route_df, [], []
 
     start_date = end_date - timedelta(days=days - 1)
     route_30 = route_df[(route_df["service_date"] >= start_date) & (route_df["service_date"] <= end_date)].copy()
     if route_30.empty:
-        return route_30, []
+        return route_30, [], []
     prev_end = start_date - timedelta(days=1)
     prev_start = prev_end - timedelta(days=days - 1)
     route_prev = route_df[(route_df["service_date"] >= prev_start) & (route_df["service_date"] <= prev_end)].copy()
@@ -354,9 +359,7 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
     metric_base.loc[~metric_base["arrival_observed"], ["arrival_delay_minutes"]] = pd.NA
 
     avg_arr_raw = metric_base.groupby("zug", dropna=False)["arrival_delay_minutes"].mean()
-    avg_arr = avg_arr_raw.apply(
-        lambda x: int(float(x)) if pd.notna(x) else pd.NA
-    )
+    avg_arr = avg_arr_raw.apply(lambda x: int(float(x)) if pd.notna(x) else pd.NA)
     median_arr = metric_base.groupby("zug", dropna=False)["arrival_delay_minutes"].median().apply(
         lambda x: int(float(x)) if pd.notna(x) else pd.NA
     )
@@ -380,8 +383,8 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
     summary = pd.DataFrame(
         {
             "Zug": avg_arr.index,
-            "avg_arr": avg_arr.values,
             "avg_arr_raw": avg_arr_raw.values,
+            "avg_arr": avg_arr.values,
             "median_arr": median_arr.values,
         }
     )
@@ -392,7 +395,6 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
         how="left",
     )
     summary["ausfalltage"] = summary["ausfalltage"].fillna(0).astype(int)
-    summary_col = "Med/Mean/Ausf"
 
     def _trend_symbol(row: pd.Series) -> str:
         cur = row["avg_arr_raw"]
@@ -400,22 +402,15 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
         if pd.isna(cur) or pd.isna(prev):
             return "→"
         diff = float(cur) - float(prev)
-        # Treat very small differences as unchanged to avoid noisy up/down flips.
         if abs(diff) < 0.5:
             return "→"
-        if diff < 0:
-            return "↓"
-        if diff > 0:
-            return "↑"
-        return "→"
+        return "↓" if diff < 0 else "↑"
 
-    summary[summary_col] = summary.apply(
-        lambda r: f"{_trend_symbol(r)}{'-' if pd.isna(r['median_arr']) else int(r['median_arr'])}/"
-        f"{'-' if pd.isna(r['avg_arr']) else int(r['avg_arr'])}/"
-        f"{int(r['ausfalltage'])}",
-        axis=1,
-    )
-    summary = summary[["Zug", summary_col]]
+    summary["Trend"] = summary.apply(_trend_symbol, axis=1)
+    summary["Med."] = summary["median_arr"].apply(lambda x: "-" if pd.isna(x) else str(int(float(x))))
+    summary["Ø"] = summary["avg_arr"].apply(lambda x: "-" if pd.isna(x) else str(int(float(x))))
+    summary["Ausf."] = summary["ausfalltage"].astype(str)
+    summary = summary[["Zug", "Trend", "Med.", "Ø", "Ausf."]]
 
     result = pivot.merge(summary, on="Zug", how="left")
 
@@ -429,15 +424,16 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
 
     rename_map: dict[object, str] = {}
     day_cols: list[str] = []
+    weekend_cols: list[str] = []
     for col in result.columns:
         if isinstance(col, date):
             label = col.strftime("%d.%m")
             rename_map[col] = label
             day_cols.append(label)
+            if col.weekday() >= 5:
+                weekend_cols.append(label)
     result = result.rename(columns=rename_map)
 
-    # Never show placeholder values in day cells.
-    # Missing or placeholder content should be treated as outage in the main matrix.
     for col in day_cols:
         if col not in result.columns:
             continue
@@ -450,33 +446,19 @@ def build_route_matrix(df: pd.DataFrame, route_label: str, end_date: date, days:
             .fillna("Ausfall")
         )
 
-    # Keep outage count in compact stats aligned with what is shown in the day matrix.
-    if day_cols and summary_col in result.columns:
-        outage_counts = (result[day_cols] == "Ausfall").sum(axis=1).astype(int)
+    if day_cols and "Ausf." in result.columns:
+        result["Ausf."] = (result[day_cols] == "Ausfall").sum(axis=1).astype(int).astype(str)
 
-        def _replace_outage_count(value: object, outages: int) -> str:
-            text = str(value or "")
-            parts = text.split("/", 2)
-            if len(parts) != 3:
-                return text
-            return f"{parts[0]}/{parts[1]}/{outages}"
-
-        result[summary_col] = [
-            _replace_outage_count(val, outages)
-            for val, outages in zip(result[summary_col], outage_counts, strict=False)
-        ]
-
-    # Hide trains that did not run at all in the selected 30-day window.
-    # If every visible day cell is "Ausfall", the train is omitted from the matrix.
     if day_cols:
         ran_mask = ~(result[day_cols] == "Ausfall").all(axis=1)
         result = result[ran_mask].copy()
 
     result = result.drop(columns=["departure_hhmm"])
 
-    summary_cols = [summary_col]
-    ordered_cols = [c for c in result.columns if c not in summary_cols] + summary_cols
-    return result[ordered_cols], day_cols
+    stat_cols_present = [c for c in SUMMARY_COLS if c in result.columns]
+    day_only_cols = [c for c in result.columns if c not in stat_cols_present and c != "Zug"]
+    ordered_cols = ["Zug"] + day_only_cols + stat_cols_present
+    return result[ordered_cols], day_cols, weekend_cols
 
 
 def _build_train_history(train_df: pd.DataFrame) -> pd.DataFrame:
@@ -509,38 +491,14 @@ def _reason_stats(train_df: pd.DataFrame) -> pd.DataFrame:
         canceled = bool(row.get("canceled", False)) or bool(row.get("effective_arrival_missing", False))
 
         if canceled:
-            records.append(
-                {
-                    "Bereich": "Start",
-                    "Grund": dep_reason or "Ausfall",
-                    "Verspätung": dep_delay,
-                }
-            )
-            records.append(
-                {
-                    "Bereich": "Ankunft",
-                    "Grund": arr_reason or dep_reason or "Ausfall",
-                    "Verspätung": arr_delay,
-                }
-            )
+            records.append({"Bereich": "Start", "Grund": dep_reason or "Ausfall", "Verspätung": dep_delay})
+            records.append({"Bereich": "Ankunft", "Grund": arr_reason or dep_reason or "Ausfall", "Verspätung": arr_delay})
             continue
 
         if dep_delay > 0:
-            records.append(
-                {
-                    "Bereich": "Start",
-                    "Grund": dep_reason or "Unbekannt",
-                    "Verspätung": dep_delay,
-                }
-            )
+            records.append({"Bereich": "Start", "Grund": dep_reason or "Unbekannt", "Verspätung": dep_delay})
         if arr_delay > 0:
-            records.append(
-                {
-                    "Bereich": "Ankunft",
-                    "Grund": arr_reason or dep_reason or "Unbekannt",
-                    "Verspätung": arr_delay,
-                }
-            )
+            records.append({"Bereich": "Ankunft", "Grund": arr_reason or dep_reason or "Unbekannt", "Verspätung": arr_delay})
 
     if not records:
         return pd.DataFrame(columns=["Bereich", "Grund", "Anzahl", "Ø Verspätung"])
@@ -555,7 +513,100 @@ def _reason_stats(train_df: pd.DataFrame) -> pd.DataFrame:
     return result.drop(columns=["avg_delay"])
 
 
-def render_train_expandable_charts(df: pd.DataFrame, route_label: str) -> None:
+def render_car_summary(car_df: pd.DataFrame) -> None:
+    st.subheader("Auto-Fahrtdauer (Pendelzeiten)")
+    if car_df.empty:
+        st.info("Auto-Daten noch nicht verfügbar. Setze je nach Provider `TOMTOM_API_KEY` oder `ORS_API_KEY`.")
+        return
+
+    car_series = _build_car_commute_series(car_df)
+    if car_series.empty:
+        st.info("Noch keine Auto-Daten vorhanden.")
+        return
+
+    car_series["route_name"] = car_series["route_label"].map(ROUTE_TITLES).fillna(car_series["route_label"])
+    car_series = car_series.sort_values(["service_date", "route_name"])
+
+    latest_date = car_series["service_date"].max()
+    latest = car_series[car_series["service_date"] == latest_date]
+    latest_obs_ts = pd.to_datetime(car_df["observation_ts"], errors="coerce").max()
+    avg_by_route = (
+        car_series.groupby("route_name", as_index=False)["auto_minutes"]
+        .mean()
+        .rename(columns={"auto_minutes": "avg_auto_minutes"})
+    )
+    if pd.notna(latest_obs_ts):
+        st.caption(f"Letzter Auto-Messpunkt: {latest_obs_ts.strftime('%d.%m.%Y %H:%M')}")
+    else:
+        st.caption(f"Letzter Auto-Messpunkt: {latest_date}")
+    c1, c2 = st.columns(2)
+    for col, label in ((c1, "Freiburg → Offenburg"), (c2, "Offenburg → Freiburg")):
+        row_today = latest[latest["route_name"] == label]
+        row_avg = avg_by_route[avg_by_route["route_name"] == label]
+        if row_avg.empty:
+            col.metric(label, "k.A.")
+            continue
+        avg_val = int(round(float(row_avg.iloc[0]["avg_auto_minutes"])))
+        if row_today.empty:
+            col.metric(label, f"Ø {avg_val} min")
+        else:
+            today_val = int(row_today.iloc[0]["auto_minutes"])
+            col.metric(label, f"Ø {avg_val} min", f"Heute: {today_val} min")
+
+
+def _render_route_car_metric(car_df: pd.DataFrame, route_label: str) -> None:
+    car_series = _build_car_commute_series(car_df)
+    if car_series.empty:
+        return
+    route_series = car_series[car_series["route_label"] == route_label]
+    if route_series.empty:
+        return
+
+    latest_date = route_series["service_date"].max()
+    latest_row = route_series[route_series["service_date"] == latest_date]
+    avg_val = int(round(float(route_series["auto_minutes"].mean())))
+
+    if not latest_row.empty:
+        today_val = int(latest_row.iloc[0]["auto_minutes"])
+        delta = today_val - avg_val
+        sign = "+" if delta >= 0 else ""
+        st.metric("🚗 Auto heute", f"{today_val} min", f"Ø {avg_val} min ({sign}{delta})")
+    else:
+        st.metric("🚗 Auto", f"Ø {avg_val} min")
+
+
+def render_kpi_header(df: pd.DataFrame, car_df: pd.DataFrame, end_date: date, timezone: str) -> None:
+    today_df = df[df["service_date"] == end_date]
+    start_30 = end_date - timedelta(days=29)
+    df_30 = df[(df["service_date"] >= start_30) & (df["service_date"] <= end_date)]
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    for col, route_label in zip([c1, c2], ROUTE_ORDER):
+        route_today = today_df[
+            (today_df["route_label"] == route_label)
+            & today_df["arrival_observed"]
+            & ~today_df["canceled"]
+        ]
+        label = ROUTE_TITLES[route_label]
+        if route_today.empty:
+            col.metric(label, "k.A.", help="Noch keine Ankunftsdaten für diesen Tag")
+        else:
+            avg = float(route_today["arrival_delay_minutes"].mean())
+            col.metric(label, f"Ø {avg:.0f} min")
+
+    if not df_30.empty:
+        cancel_rate = df_30["canceled"].mean() * 100
+        c3.metric("Ausfallrate 30 Tage", f"{cancel_rate:.1f} %")
+    else:
+        c3.metric("Ausfallrate 30 Tage", "k.A.")
+
+    last_obs = df["observation_ts"].max()
+    ts_str = last_obs.strftime("%d.%m. %H:%M") if pd.notna(last_obs) else "-"
+    c4.metric("Letztes Update", ts_str)
+
+
+def render_combined_train_chart(df: pd.DataFrame, route_label: str, timezone: str) -> None:
     route_df = df[df["route_label"] == route_label].copy()
     if route_df.empty:
         return
@@ -566,95 +617,70 @@ def render_train_expandable_charts(df: pd.DataFrame, route_label: str) -> None:
         .sort_values(by=["departure_hhmm", "zug"], kind="stable")
     )
 
-    st.markdown("**Verlauf je Zug (alle verfügbaren Daten)**")
+    today_str = datetime.now(ZoneInfo(timezone)).date().isoformat()
+    fig = go.Figure()
+
     for train in trains["zug"]:
-        with st.expander(train):
-            train_df = route_df[route_df["zug"] == train].copy()
-            history = _build_train_history(train_df)
+        train_df = route_df[route_df["zug"] == train]
+        history = _build_train_history(train_df)
 
-            fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=history["service_date"],
+                y=history["arrival_delay"],
+                mode="lines+markers",
+                name=train,
+                legendgroup=train,
+                marker=dict(size=5),
+                hovertemplate=f"<b>{train}</b><br>%{{x|%d.%m.%Y}}: %{{y}} min<extra></extra>",
+            )
+        )
+
+        canceled_pts = history[history["canceled"]]
+        if not canceled_pts.empty:
             fig.add_trace(
                 go.Scatter(
-                    x=history["service_date"],
-                    y=history["start_delay"],
-                    mode="lines+markers",
-                    name="Start-Verspätung",
-                    line=dict(color="#1f77b4", width=2),
-                )
-            )
-            fig.add_trace(
-                go.Scatter(
-                    x=history["service_date"],
-                    y=history["arrival_delay"],
-                    mode="lines+markers",
-                    name="Ankunfts-Verspätung",
-                    line=dict(color="#ff7f0e", width=2),
+                    x=canceled_pts["service_date"],
+                    y=[0] * len(canceled_pts),
+                    mode="markers",
+                    showlegend=False,
+                    legendgroup=train,
+                    marker=dict(color="#7b1fa2", size=10, symbol="x"),
+                    hovertemplate=f"<b>{train}</b> Ausfall<extra></extra>",
                 )
             )
 
-            if not history.empty:
-                latest_date = history["service_date"].max()
-                cutoff_date = latest_date - pd.Timedelta(days=29)
-                last_30 = history[history["service_date"] >= cutoff_date]
-                last_30_arrival = last_30["arrival_delay"].dropna()
-                if not last_30_arrival.empty:
-                    avg_30 = float(last_30_arrival.mean())
-                    median_30 = float(last_30_arrival.median())
-                    fig.add_trace(
-                        go.Scatter(
-                            x=history["service_date"],
-                            y=[avg_30] * len(history),
-                            mode="lines",
-                            name=f"Ø Ankunfts-Verspätung 30d ({avg_30:.1f})",
-                            line=dict(color="#2ca02c", width=2, dash="dash"),
-                        )
-                    )
-                    fig.add_trace(
-                        go.Scatter(
-                            x=history["service_date"],
-                            y=[median_30] * len(history),
-                            mode="lines",
-                            name=f"Median Ankunfts-Verspätung 30d ({median_30:.1f})",
-                            line=dict(color="#9467bd", width=2, dash="dot"),
-                        )
-                    )
+    fig.add_vline(
+        x=today_str,
+        line_dash="dash",
+        line_color="rgba(100,100,100,0.45)",
+        annotation_text="Heute",
+        annotation_position="top left",
+        annotation_font_color="rgba(100,100,100,0.7)",
+    )
 
-            canceled_points = history[history["canceled"]]
-            if not canceled_points.empty:
-                fig.add_trace(
-                    go.Scatter(
-                        x=canceled_points["service_date"],
-                        y=[0] * len(canceled_points),
-                        mode="markers",
-                        name="Ausfall",
-                        marker=dict(color="#7b1fa2", size=10, symbol="x"),
-                    )
-                )
+    fig.update_layout(
+        xaxis_title=None,
+        yaxis_title="Ankunfts-Verspätung (min)",
+        height=360,
+        margin=dict(l=20, r=20, t=40, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        hovermode="x unified",
+    )
+    st.plotly_chart(fig, use_container_width=True, key=f"combined-chart-{route_label}")
 
-            fig.update_layout(
-                xaxis_title="Datum",
-                yaxis_title="Verspätung (Minuten)",
-                height=320,
-                margin=dict(l=20, r=20, t=30, b=20),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            )
-            chart_key = f"history-chart-{route_label}-{train}"
-            st.plotly_chart(fig, use_container_width=True, key=chart_key)
-
-            reason_stats = _reason_stats(train_df)
-            st.markdown("**Statistik der Verspätungsgründe**")
-            if reason_stats.empty:
-                st.write("Keine verspätungsrelevanten Gründe in den vorhandenen Daten.")
-            else:
+    for train in trains["zug"]:
+        train_df = route_df[route_df["zug"] == train]
+        reason_stats = _reason_stats(train_df)
+        if not reason_stats.empty:
+            with st.expander(f"Verspätungsgründe: {train}"):
                 st.dataframe(reason_stats, use_container_width=True, hide_index=True)
 
 
 def main() -> None:
     st.set_page_config(page_title="DB Pünktlichkeitsmonitor", layout="wide")
     st.title("DB Pünktlichkeitsmonitor")
-    st.caption(
-        "Tagesspalten: S=Start, A=Ankunft (Minuten). '-' = keine verlässliche Information. Farben: grün <5, orange <=15, rot >15, lila=Ausfall."
-    )
+    st.markdown(_LEGEND_HTML, unsafe_allow_html=True)
 
     settings = load_settings()
     df = load_data(settings.database_path, settings.timezone)
@@ -665,53 +691,63 @@ def main() -> None:
         return
 
     max_date = max(df["service_date"])
-    end_date = st.date_input("Berichts-Enddatum", value=max_date)
-    render_car_summary(car_df)
+    date_col, _ = st.columns([0.22, 0.78])
+    with date_col:
+        end_date = st.date_input("Berichts-Enddatum", value=max_date)
 
-    route_payloads: list[tuple[str, pd.DataFrame, list[str]]] = []
+    render_kpi_header(df, car_df, end_date, settings.timezone)
+    st.divider()
+
+    route_payloads: list[tuple[str, pd.DataFrame, list[str], list[str]]] = []
     for route_label in ROUTE_ORDER:
-        matrix, day_cols = build_route_matrix(df, route_label=route_label, end_date=end_date, days=30)
-        route_payloads.append((route_label, matrix, day_cols))
+        matrix, day_cols, weekend_cols = build_route_matrix(
+            df, route_label=route_label, end_date=end_date, days=30
+        )
+        route_payloads.append((route_label, matrix, day_cols, weekend_cols))
 
-    # 1) Main tables first, one below another.
-    summary_cols = ["Med/Mean/Ausf"]
-    for route_label, matrix, day_cols in route_payloads:
-        st.subheader(ROUTE_TITLES.get(route_label, route_label))
-        if matrix.empty:
-            st.write("Keine Daten für die letzten 30 Tage vorhanden.")
-            continue
+    tab_morgen, tab_abend, tab_system = st.tabs(["🌅 Morgen", "🌆 Abend", "⚙️ System"])
 
-        matrix_display = matrix.set_index("Zug")
-        fixed_cols = [c for c in summary_cols if c in matrix_display.columns]
-        day_view_cols = [c for c in matrix_display.columns if c not in fixed_cols]
+    for (route_label, matrix, day_cols, weekend_cols), tab in zip(route_payloads, [tab_morgen, tab_abend]):
+        with tab:
+            if matrix.empty:
+                st.write("Keine Daten für die letzten 30 Tage vorhanden.")
+                continue
 
-        left, right = st.columns([0.87, 0.13], gap="small")
-        with left:
-            st.dataframe(
-                style_matrix(matrix_display[day_view_cols], day_cols),
-                use_container_width=True,
-                hide_index=False,
-            )
-        with right:
-            st.dataframe(
-                style_matrix(matrix_display[fixed_cols], []),
-                use_container_width=True,
-                hide_index=True,
-            )
+            if not car_df.empty:
+                car_col, _ = st.columns([0.2, 0.8])
+                with car_col:
+                    _render_route_car_metric(car_df, route_label)
 
-    # 2) Then train histories, separated by route.
-    for route_label, _, _ in route_payloads:
-        st.subheader(f"Verlauf je Zug: {ROUTE_TITLES.get(route_label, route_label)}")
-        render_train_expandable_charts(df, route_label)
+            matrix_display = matrix.set_index("Zug")
+            stat_cols = [c for c in SUMMARY_COLS if c in matrix_display.columns]
+            day_view_cols = [c for c in matrix_display.columns if c not in stat_cols]
 
-    # 3) Health metrics at the end.
-    st.subheader("Systemstatus")
-    last_obs = df["observation_ts"].max()
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Letztes Update", str(last_obs)[:19] if pd.notna(last_obs) else "-")
-    c2.metric("Datensätze gesamt", int(len(df)))
-    c3.metric("Ankunft ohne Info", int(df["effective_arrival_missing"].sum()))
-    c4.metric("Ankunft offen", int(df["effective_arrival_open"].sum()))
+            left, right = st.columns([0.80, 0.20], gap="small")
+            with left:
+                st.dataframe(
+                    style_matrix(matrix_display[day_view_cols], day_cols, weekend_cols),
+                    use_container_width=True,
+                    hide_index=False,
+                )
+            with right:
+                st.dataframe(
+                    style_matrix(matrix_display[stat_cols], [], None),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            st.markdown("**Ankunfts-Verspätung je Zug**")
+            render_combined_train_chart(df, route_label, settings.timezone)
+
+    with tab_system:
+        render_car_summary(car_df)
+        st.subheader("Systemstatus")
+        last_obs = df["observation_ts"].max()
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Letztes Update", str(last_obs)[:19] if pd.notna(last_obs) else "-")
+        c2.metric("Datensätze gesamt", int(len(df)))
+        c3.metric("Ankunft ohne Info", int(df["effective_arrival_missing"].sum()))
+        c4.metric("Ankunft offen", int(df["effective_arrival_open"].sum()))
 
 
 if __name__ == "__main__":
