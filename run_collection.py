@@ -33,11 +33,15 @@ def _create_backup(database_path: str, backup_dir: str, retention_days: int) -> 
         shutil.copy2(db_path, backup_path)
 
     cutoff = datetime.now() - timedelta(days=retention_days)
-    for item in out_dir.glob(f"{db_path.stem}_*{db_path.suffix}"):
+    prefix = f"{db_path.stem}_"
+    suffix = db_path.suffix
+    for item in out_dir.glob(f"{prefix}*{suffix}"):
         try:
-            if datetime.fromtimestamp(item.stat().st_mtime) < cutoff:
+            date_str = item.stem[len(prefix):]
+            item_date = datetime.strptime(date_str, "%Y-%m-%d")
+            if item_date < cutoff:
                 item.unlink()
-        except FileNotFoundError:
+        except (ValueError, FileNotFoundError):
             continue
 
     return backup_path
