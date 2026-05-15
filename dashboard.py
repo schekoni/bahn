@@ -569,8 +569,13 @@ def _render_route_car_metric(car_df: pd.DataFrame, route_label: str) -> None:
     if not latest_row.empty:
         today_val = int(latest_row.iloc[0]["auto_minutes"])
         delta = today_val - avg_val
-        sign = "+" if delta >= 0 else ""
-        st.metric("🚗 Auto heute", f"{today_val} min", f"Ø {avg_val} min ({sign}{delta})")
+        date_label = latest_date.strftime("%d.%m") if hasattr(latest_date, "strftime") else str(latest_date)
+        st.metric(
+            f"🚗 Auto ({date_label})",
+            f"{today_val} min",
+            delta=f"{delta:+d} min ggü. Ø {avg_val}",
+            delta_color="inverse",
+        )
     else:
         st.metric("🚗 Auto", f"Ø {avg_val} min")
 
@@ -727,7 +732,7 @@ def main() -> None:
                 continue
 
             if not car_df.empty:
-                car_col, _ = st.columns([0.2, 0.8])
+                car_col, _ = st.columns([0.35, 0.65])
                 with car_col:
                     _render_route_car_metric(car_df, route_label)
 
