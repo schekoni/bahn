@@ -650,13 +650,26 @@ def render_combined_train_chart(df: pd.DataFrame, route_label: str, timezone: st
                 )
             )
 
-    fig.add_vline(
+    fig.add_shape(
+        type="line",
+        x0=today_str,
+        x1=today_str,
+        y0=0,
+        y1=1,
+        xref="x",
+        yref="paper",
+        line=dict(dash="dash", color="rgba(100,100,100,0.45)"),
+    )
+    fig.add_annotation(
         x=today_str,
-        line_dash="dash",
-        line_color="rgba(100,100,100,0.45)",
-        annotation_text="Heute",
-        annotation_position="top left",
-        annotation_font_color="rgba(100,100,100,0.7)",
+        y=1,
+        xref="x",
+        yref="paper",
+        text="Heute",
+        showarrow=False,
+        xanchor="left",
+        yanchor="top",
+        font=dict(color="rgba(100,100,100,0.7)", size=11),
     )
 
     fig.update_layout(
