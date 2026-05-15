@@ -35,12 +35,12 @@ PRIORITY_TRAINS = {
 }
 
 _LEGEND_HTML = """
-<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0 14px 0">
-  <span style="background:#2e7d32;color:white;padding:3px 11px;border-radius:12px;font-size:.78em;font-weight:600">&lt; 5 min ✓</span>
-  <span style="background:#ef6c00;color:white;padding:3px 11px;border-radius:12px;font-size:.78em;font-weight:600">5 – 15 min</span>
-  <span style="background:#c62828;color:white;padding:3px 11px;border-radius:12px;font-size:.78em;font-weight:600">&gt; 15 min</span>
-  <span style="background:#7b1fa2;color:white;padding:3px 11px;border-radius:12px;font-size:.78em;font-weight:600">Ausfall</span>
-  <span style="color:#455a64;font-size:.78em;padding:3px 0">S = Abfahrt &nbsp;·&nbsp; A = Ankunft (Minuten Verspätung)</span>
+<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin:0;padding-top:.45rem">
+  <span style="background:#2e7d32;color:white;padding:2px 8px;border-radius:10px;font-size:.72em;font-weight:600">&lt;5</span>
+  <span style="background:#ef6c00;color:white;padding:2px 8px;border-radius:10px;font-size:.72em;font-weight:600">5–15</span>
+  <span style="background:#c62828;color:white;padding:2px 8px;border-radius:10px;font-size:.72em;font-weight:600">&gt;15</span>
+  <span style="background:#7b1fa2;color:white;padding:2px 8px;border-radius:10px;font-size:.72em;font-weight:600">Ausfall</span>
+  <span style="color:#607d8b;font-size:.7em;margin-left:4px">min · S=Abfahrt A=Ankunft</span>
 </div>
 """
 
@@ -688,8 +688,15 @@ def render_combined_train_chart(df: pd.DataFrame, route_label: str, timezone: st
 
 def main() -> None:
     st.set_page_config(page_title="DB Pünktlichkeitsmonitor", layout="wide")
-    st.title("DB Pünktlichkeitsmonitor")
-    st.markdown(_LEGEND_HTML, unsafe_allow_html=True)
+    st.markdown(
+        """
+        <style>
+        .block-container {padding-top: 1.2rem; padding-bottom: 1rem;}
+        div[data-testid="stDateInput"] label {font-size: .75rem; margin-bottom: 0;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     settings = load_settings()
     df = load_data(settings.database_path, settings.timezone)
@@ -700,11 +707,16 @@ def main() -> None:
         return
 
     max_date = max(df["service_date"])
-    date_col, _ = st.columns([0.22, 0.78])
+    title_col, legend_col, date_col = st.columns([0.28, 0.48, 0.24])
+    with title_col:
+        st.markdown(
+            "<div style='font-weight:700;font-size:1.15rem;padding-top:.45rem'>🚆 DB Pünktlichkeitsmonitor</div>",
+            unsafe_allow_html=True,
+        )
+    with legend_col:
+        st.markdown(_LEGEND_HTML, unsafe_allow_html=True)
     with date_col:
-        end_date = st.date_input("Berichts-Enddatum", value=max_date)
-
-    st.divider()
+        end_date = st.date_input("Enddatum", value=max_date, label_visibility="collapsed")
 
     route_payloads: list[tuple[str, pd.DataFrame, list[str], list[str]]] = []
     for route_label in ROUTE_ORDER:
