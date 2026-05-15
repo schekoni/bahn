@@ -687,12 +687,16 @@ def render_combined_train_chart(df: pd.DataFrame, route_label: str, timezone: st
 
 
 def main() -> None:
-    st.set_page_config(page_title="DB Pünktlichkeitsmonitor", layout="wide")
+    st.set_page_config(
+        page_title="DB Pünktlichkeitsmonitor",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
     st.markdown(
         """
         <style>
-        .block-container {padding-top: 1.2rem; padding-bottom: 1rem;}
-        div[data-testid="stDateInput"] label {font-size: .75rem; margin-bottom: 0;}
+        .block-container {padding-top: .6rem; padding-bottom: 1rem;}
+        header[data-testid="stHeader"] {height: 0; visibility: hidden;}
         </style>
         """,
         unsafe_allow_html=True,
@@ -707,16 +711,13 @@ def main() -> None:
         return
 
     max_date = max(df["service_date"])
-    title_col, legend_col, date_col = st.columns([0.28, 0.48, 0.24])
-    with title_col:
-        st.markdown(
-            "<div style='font-weight:700;font-size:1.15rem;padding-top:.45rem'>🚆 DB Pünktlichkeitsmonitor</div>",
-            unsafe_allow_html=True,
-        )
-    with legend_col:
+
+    with st.sidebar:
+        st.markdown("### 🚆 DB Pünktlichkeitsmonitor")
+        end_date = st.date_input("Berichts-Enddatum", value=max_date)
+        st.markdown("**Farbcode (Minuten Verspätung)**")
         st.markdown(_LEGEND_HTML, unsafe_allow_html=True)
-    with date_col:
-        end_date = st.date_input("Enddatum", value=max_date, label_visibility="collapsed")
+        st.caption("S = Abfahrt · A = Ankunft")
 
     route_payloads: list[tuple[str, pd.DataFrame, list[str], list[str]]] = []
     for route_label in ROUTE_ORDER:
