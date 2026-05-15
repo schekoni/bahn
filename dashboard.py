@@ -29,6 +29,11 @@ CAR_ROUTE_BY_TRAIN_ROUTE = {
 
 SUMMARY_COLS = ["Trend", "Med.", "Ø", "Ausf."]
 
+PRIORITY_TRAINS = {
+    "Morning Freiburg->Offenburg": ["ECE8", "ICE376"],
+    "Afternoon Offenburg->Freiburg": ["ICE73", "ICE373", "RE5339"],
+}
+
 _LEGEND_HTML = """
 <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0 14px 0">
   <span style="background:#2e7d32;color:white;padding:3px 11px;border-radius:12px;font-size:.78em;font-weight:600">&lt; 5 min ✓</span>
@@ -580,37 +585,6 @@ def _render_route_car_metric(car_df: pd.DataFrame, route_label: str) -> None:
         st.metric("🚗 Auto", f"Ø {avg_val} min")
 
 
-def render_kpi_header(df: pd.DataFrame, car_df: pd.DataFrame, end_date: date, timezone: str) -> None:
-    today_df = df[df["service_date"] == end_date]
-    start_30 = end_date - timedelta(days=29)
-    df_30 = df[(df["service_date"] >= start_30) & (df["service_date"] <= end_date)]
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    for col, route_label in zip([c1, c2], ROUTE_ORDER):
-        route_today = today_df[
-            (today_df["route_label"] == route_label)
-            & today_df["arrival_observed"]
-            & ~today_df["canceled"]
-        ]
-        label = ROUTE_TITLES[route_label]
-        if route_today.empty:
-            col.metric(label, "k.A.", help="Noch keine Ankunftsdaten für diesen Tag")
-        else:
-            avg = float(route_today["arrival_delay_minutes"].mean())
-            col.metric(label, f"Ø {avg:.0f} min")
-
-    if not df_30.empty:
-        cancel_rate = df_30["canceled"].mean() * 100
-        c3.metric("Ausfallrate 30 Tage", f"{cancel_rate:.1f} %")
-    else:
-        c3.metric("Ausfallrate 30 Tage", "k.A.")
-
-    last_obs = df["observation_ts"].max()
-    ts_str = last_obs.strftime("%d.%m. %H:%M") if pd.notna(last_obs) else "-"
-    c4.metric("Letztes Update", ts_str)
-
-
 def render_combined_train_chart(df: pd.DataFrame, route_label: str, timezone: str) -> None:
     route_df = df[df["route_label"] == route_label].copy()
     if route_df.empty:
@@ -622,10 +596,27 @@ def render_combined_train_chart(df: pd.DataFrame, route_label: str, timezone: st
         .sort_values(by=["departure_hhmm", "zug"], kind="stable")
     )
 
+    all_trains = trains["zug"].tolist()
+    priority = PRIORITY_TRAINS.get(route_label, [])
+    default_trains = [z for z in all_trains if z.split(" | ", 1)[0] in priority]
+    if not default_trains:
+        default_trains = all_trains
+
+    selected_trains = st.multiselect(
+        "Züge in Grafik",
+        options=all_trains,
+        default=default_trains,
+        key=f"trains-select-{route_label}",
+    )
+
+    if not selected_trains:
+        st.info("Bitte mindestens einen Zug auswählen.")
+        return
+
     today_str = datetime.now(ZoneInfo(timezone)).date().isoformat()
     fig = go.Figure()
 
-    for train in trains["zug"]:
+    for train in selected_trains:
         train_df = route_df[route_df["zug"] == train]
         history = _build_train_history(train_df)
 
@@ -687,7 +678,7 @@ def render_combined_train_chart(df: pd.DataFrame, route_label: str, timezone: st
     )
     st.plotly_chart(fig, use_container_width=True, key=f"combined-chart-{route_label}")
 
-    for train in trains["zug"]:
+    for train in selected_trains:
         train_df = route_df[route_df["zug"] == train]
         reason_stats = _reason_stats(train_df)
         if not reason_stats.empty:
@@ -713,7 +704,6 @@ def main() -> None:
     with date_col:
         end_date = st.date_input("Berichts-Enddatum", value=max_date)
 
-    render_kpi_header(df, car_df, end_date, settings.timezone)
     st.divider()
 
     route_payloads: list[tuple[str, pd.DataFrame, list[str], list[str]]] = []
