@@ -3,7 +3,7 @@
 DB-Zugpünktlichkeit Freiburg ↔ Offenburg. SQLite + Streamlit.
 **Pfad:** `./`
 **Remote:** https://github.com/schekoni/bahn
-**Git-Identity:** private email address / Repository owner
+**Git-Identity:** schekoni (GitHub noreply)
 
 ## Dateien
 | Datei | Zweck |
