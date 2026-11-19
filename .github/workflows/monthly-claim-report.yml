@@ -1,0 +1,41 @@
+name: Monthly DB Claim Report
+
+on:
+  schedule:
+    # Run at both possible UTC hours; the script sends only at 08:00 Europe/Berlin.
+    - cron: "0 6,7 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monthly-db-claim-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DATABASE_PATH: data/train_punctuality.db
+      REPORT_EMAIL_TO: ${{ secrets.REPORT_EMAIL_TO }}
+      REPORT_EMAIL_FROM: ${{ secrets.REPORT_EMAIL_FROM }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      CLAIM_SUBSCRIPTION_NAME: ${{ secrets.CLAIM_SUBSCRIPTION_NAME }}
+      CLAIM_SUBSCRIPTION_NUMBER: ${{ secrets.CLAIM_SUBSCRIPTION_NUMBER }}
+      CLAIM_TRAVELER_NAME: ${{ secrets.CLAIM_TRAVELER_NAME }}
+      SMTP_HOST: smtp.gmail.com
+      SMTP_PORT: "465"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Generate and send previous month's report
+        run: python monthly_claim_report.py ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
