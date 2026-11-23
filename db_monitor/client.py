@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from datetime import datetime
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -30,7 +31,9 @@ class DBApiClient:
             read=3,
             backoff_factor=0.5,
             status_forcelist=(429, 500, 502, 503, 504),
-            allowed_methods=frozenset({"GET"}),
+            # OpenBoards uses read-only POST requests, so the same transient
+            # response retries are safe for its board queries.
+            allowed_methods=frozenset({"GET", "POST"}),
         )
         adapter = HTTPAdapter(max_retries=retry)
         self.session.mount("https://", adapter)
@@ -114,3 +117,38 @@ class DBApiClient:
                 return "<timetable/>"
             raise
         return response.text
+
+    def get_open_board(
+        self, board: str, eva: str, start: datetime, end: datetime
+    ) -> dict:
+        if board not in {"departures", "arrivals"}:
+            raise ValueError(f"Unsupported OpenBoards board: {board}")
+
+        endpoint = f"{self.settings.openboards_endpoint}/{board}"
+        payload = {
+            "stopPlaceOrStation": {"evaNumbers": [str(eva)]},
+            "timeWindow": {
+                "timeStart": start.isoformat(),
+                "timeEnd": end.isoformat(),
+            },
+            "noCancellations": False,
+            # Route direction depends on finding the target/source in the path;
+            # three stops can truncate legitimate longer routes.
+            "maxViaStops": 10,
+            "maxEntriesPerTransportType": 25,
+            "languages": ["deu"],
+        }
+        try:
+            response = self.session.post(
+                endpoint,
+                json=payload,
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            raise requests.RequestException(
+                f"OpenBoards {board} request failed for EVA {eva}: {exc}"
+            ) from exc
+
+        self._raise_with_context(response, f"open-boards/v1/{board}")
+        return response.json()

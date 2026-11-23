@@ -18,6 +18,8 @@ TRAIN_FILTERS = (
     ("Afternoon Offenburg->Freiburg", "ICE73"),
     ("Afternoon Offenburg->Freiburg", "ICE373"),
 )
+AFTERNOON_ROUTE = "Afternoon Offenburg->Freiburg"
+AFTERNOON_TRAINS = {"ICE73", "ICE373"}
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,37 @@ def previous_month(today: date) -> tuple[date, date]:
     end = month_start - timedelta(days=1)
     start = end.replace(day=1)
     return start, end
+
+
+def keep_most_delayed_afternoon(cases: list[Case]) -> list[Case]:
+    """Keep only the more delayed of the two afternoon ICEs on each day."""
+    selected: list[Case] = []
+    afternoon_by_date: dict[str, Case] = {}
+
+    for case in cases:
+        is_comparable_afternoon_delay = (
+            case.route_label == AFTERNOON_ROUTE
+            and case.train_name in AFTERNOON_TRAINS
+            and not case.canceled
+            and case.delay_minutes is not None
+            and case.delay_minutes >= 20
+        )
+        if not is_comparable_afternoon_delay:
+            selected.append(case)
+            continue
+
+        current = afternoon_by_date.get(case.service_date)
+        if current is None or (
+            case.delay_minutes > current.delay_minutes
+            or (
+                case.delay_minutes == current.delay_minutes
+                and case.planned_departure < current.planned_departure
+            )
+        ):
+            afternoon_by_date[case.service_date] = case
+
+    selected.extend(afternoon_by_date.values())
+    return sorted(selected, key=lambda item: (item.service_date, item.planned_departure, item.train_name))
 
 
 def read_month(database: Path, start: date, end: date) -> tuple[list[Case], str | None, str | None]:
@@ -70,8 +103,7 @@ def read_month(database: Path, start: date, end: date) -> tuple[list[Case], str 
                         service_date, train_name, route_label, departure,
                         planned_arrival, actual_arrival, delay, is_canceled,
                     ))
-    cases.sort(key=lambda item: (item.service_date, item.planned_departure, item.train_name))
-    return cases, available_from, available_through
+    return keep_most_delayed_afternoon(cases), available_from, available_through
 
 
 def _hhmm(raw: str | None) -> str:

@@ -11,6 +11,10 @@ on:
     - cron: "30 4,5 * * *"
     # Afternoon 16:30 local -> 14:30 UTC (summer), 15:30 UTC (winter)
     - cron: "30 14,15 * * *"
+    # Follow-up runs to capture actual arrival times; trains only, no car API calls.
+    # These UTC times are after morning and afternoon arrivals in both DST seasons.
+    - cron: "15 7 * * *"
+    - cron: "45 16 * * *"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -25,6 +29,8 @@ jobs:
     env:
       DB_CLIENT_ID: ${{ secrets.DB_CLIENT_ID }}
       DB_API_KEY: ${{ secrets.DB_API_KEY }}
+      DB_API_PROVIDER: ${{ vars.DB_API_PROVIDER || 'openboards' }}
+      TRAIN_ONLY: ${{ github.event.schedule == '15 7 * * *' || github.event.schedule == '45 16 * * *' }}
       CAR_PROVIDER: tomtom
       TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
       ORS_API_KEY: ${{ secrets.ORS_API_KEY }}
@@ -55,7 +61,12 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run collection
-        run: python run_collection.py
+        run: |
+          if [ "$TRAIN_ONLY" = "true" ]; then
+            python run_collection.py --trains-only
+          else
+            python run_collection.py
+          fi
 
       - name: Commit updated DB if changed
         run: |

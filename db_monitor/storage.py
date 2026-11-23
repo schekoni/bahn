@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from datetime import time
 from pathlib import Path
 
@@ -178,6 +179,35 @@ class ObservationStore:
             )
             con.commit()
         return len(rows)
+
+    def reuse_existing_train_ids(self, rows: list[Observation]) -> list[Observation]:
+        """Update today's existing Timetables rows instead of duplicating them."""
+        if not rows:
+            return rows
+
+        with sqlite3.connect(self.db_path) as con:
+            mapped: list[Observation] = []
+            for row in rows:
+                existing = con.execute(
+                    """
+                    SELECT train_id FROM observations
+                    WHERE service_date = ? AND route_label = ? AND train_name = ?
+                      AND planned_departure = ?
+                    ORDER BY observation_ts DESC LIMIT 1
+                    """,
+                    (
+                        row.service_date,
+                        row.route_label,
+                        row.train_name,
+                        row.planned_departure.isoformat(),
+                    ),
+                ).fetchone()
+                mapped.append(
+                    replace(row, train_id=existing[0])
+                    if existing and existing[0] != row.train_id
+                    else row
+                )
+        return mapped
 
     def upsert_car_many(self, rows: list[CarObservation]) -> int:
         if not rows:

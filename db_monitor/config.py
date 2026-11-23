@@ -25,6 +25,8 @@ class Settings:
     timezone: str
     station_endpoint: str
     timetables_endpoint: str
+    openboards_endpoint: str
+    db_api_provider: str
     database_path: str
     car_provider: str
     ors_api_key: str
@@ -73,6 +75,10 @@ def load_settings() -> Settings:
         timetables_endpoint=os.getenv(
             "DB_TIMETABLES_ENDPOINT", "https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1"
         ),
+        openboards_endpoint=os.getenv(
+            "DB_OPENBOARDS_ENDPOINT", "https://apis.deutschebahn.com/db-api-marketplace/apis/open-boards/v1"
+        ),
+        db_api_provider=os.getenv("DB_API_PROVIDER", "openboards").strip().lower(),
         database_path=os.getenv("DATABASE_PATH", "data/train_punctuality.db"),
         car_provider=os.getenv("CAR_PROVIDER", "ors").strip().lower(),
         ors_api_key=os.getenv("ORS_API_KEY", "").strip(),
