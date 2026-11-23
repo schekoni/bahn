@@ -108,8 +108,10 @@ Falls du trotzdem lokal per Cron fahren willst:
 
 ## Hinweise zur DB API
 
-- Das Projekt erwartet XML-Antworten aus dem Timetables-Endpunkt.
-- Bei API-Aenderungen (Schema/Felder) muss `db_monitor/parser.py` angepasst werden.
+- Standardmaessig verwendet die Erfassung die OpenBoards API.
+- Fuer einen Rollback auf Timetables kann `DB_API_PROVIDER=timetables` in `.env` gesetzt werden.
+- Der GitHub-Workflow verwendet die Repository-Variable `DB_API_PROVIDER`; fehlt sie, bleibt OpenBoards aktiv.
+- Die OpenBoards-Antworten werden ueber die Fahrt-ID zwischen Abfahrt und Ankunft verknuepft. Nur Fahrten mit dem Ziel im Laufweg werden erfasst.
 
 ## Monatlicher Neurologie-Report (Stroke/Notfall)
 
