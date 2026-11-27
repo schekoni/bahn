@@ -219,7 +219,7 @@ def _build_car_commute_series(car_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _cell_value(row: pd.Series) -> str:
-    if bool(row["canceled"]) or bool(row.get("effective_arrival_missing", False)):
+    if bool(row["canceled"]):
         return "Ausfall"
     dep_token = "-" if bool(row["effective_departure_unknown"]) else str(int(float(row["delay_minutes"])))
     if bool(row["arrival_observed"]):
@@ -350,7 +350,7 @@ def build_route_matrix(
     route_prev = route_df[(route_df["service_date"] >= prev_start) & (route_df["service_date"] <= prev_end)].copy()
 
     route_30["day_cell"] = route_30.apply(_cell_value, axis=1)
-    route_30["display_ausfall"] = route_30["canceled"] | route_30.get("effective_arrival_missing", False)
+    route_30["display_ausfall"] = route_30["canceled"]
 
     pivot = (
         route_30.pivot_table(index="zug", columns="service_date", values="day_cell", aggfunc="first")
@@ -378,9 +378,7 @@ def build_route_matrix(
     prev_avg_arr_raw = pd.Series(dtype="float64")
     if not route_prev.empty:
         prev_metric_base = route_prev.copy()
-        prev_metric_base["display_ausfall"] = prev_metric_base["canceled"] | prev_metric_base.get(
-            "effective_arrival_missing", False
-        )
+        prev_metric_base["display_ausfall"] = prev_metric_base["canceled"]
         prev_metric_base.loc[prev_metric_base["display_ausfall"], ["delay_minutes", "arrival_delay_minutes"]] = pd.NA
         prev_metric_base.loc[~prev_metric_base["arrival_observed"], ["arrival_delay_minutes"]] = pd.NA
         prev_avg_arr_raw = prev_metric_base.groupby("zug", dropna=False)["arrival_delay_minutes"].mean()
@@ -448,7 +446,7 @@ def build_route_matrix(
             .str.replace(r"(?i)\b(?:none|null|nan)\b", "", regex=True)
             .str.strip()
             .replace({"": pd.NA, "-": pd.NA})
-            .fillna("Ausfall")
+            .fillna("")
         )
 
     if day_cols and "Ausf." in result.columns:
@@ -493,7 +491,7 @@ def _reason_stats(train_df: pd.DataFrame) -> pd.DataFrame:
         arr_reason = _clean_reason_text(row.get("arrival_reason"))
         dep_delay = int(float(row.get("delay_minutes", 0) or 0))
         arr_delay = int(float(row.get("arrival_delay_minutes", 0) or 0))
-        canceled = bool(row.get("canceled", False)) or bool(row.get("effective_arrival_missing", False))
+        canceled = bool(row.get("canceled", False))
 
         if canceled:
             records.append({"Bereich": "Start", "Grund": dep_reason or "Ausfall", "Verspätung": dep_delay})
