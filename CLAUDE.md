@@ -45,5 +45,6 @@ streamlit run dashboard.py        # Dashboard starten
 - ICE73 und ICE202 fahren seit 23.11.2026 nicht (Fahrplanänderung, kein Bug).
 
 ## Lokal
-- Ordner liegt in iCloud-synchronisierten Dokumenten: `.venv`-Dateien werden ausgelagert (erster Start hängt), Git-Operationen können abbrechen, Finder legt „Datei 2“-Kopien an.
-- Streamlit starten mit `.venv/bin/python -m streamlit run dashboard.py` (die `.venv/bin/streamlit`-Shebang zeigt auf einen alten Pfad).
+- Arbeitskopie: `~/Developer/bahn-monitor` (außerhalb von iCloud; früher unter Dokumente → iCloud brach Git-Operationen ab und lagerte die `.venv` aus).
+- Remote per SSH (`git@github.com:schekoni/bahn.git`); im Schlüsselbund ist kein HTTPS-Login gespeichert.
+- `data/train_punctuality.db` wird von GitHub Actions committet: vor lokalen Sammelläufen `git pull`, lokale DB-Änderungen nur bewusst pushen (binär, nicht mergebar).
