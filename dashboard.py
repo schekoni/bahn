@@ -562,7 +562,45 @@ def _car_card(car_df: pd.DataFrame, route_label: str, day: date, train_minutes: 
     return f'<div class="bm-card">{head}{body}</div>'
 
 
-def render_today(df: pd.DataFrame, car_df: pd.DataFrame, route_label: str, timezone: str) -> None:
+def _month_bounds(day: date) -> tuple[date, date]:
+    start = day.replace(day=1)
+    end = (start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    return start, end
+
+
+def _refund_card(db_path: str, today: date) -> str:
+    """Refund accrued so far this month (both routes; DB pays per month)."""
+    start, end = _month_bounds(today)
+    try:
+        cases, _, _ = claim_report.read_month(Path(db_path), start, end)
+    except sqlite3.Error:
+        return ""
+    est = claim_report.estimate_compensation(cases)
+    eur = claim_report.format_eur
+    partial = sum(
+        1 for c in cases if not c.canceled and c.delay_minutes is not None and 20 <= c.delay_minutes < 60
+    )
+    details = [f"{est.full_cases}× ≥60 · {partial}× 20–59 min"]
+    if est.cap is not None:
+        details.append(
+            "Obergrenze erreicht" if est.total >= est.cap else f"Obergrenze {eur(est.cap)}"
+        )
+    if est.canceled_open:
+        details.append(f"{est.canceled_open} Ausfall prüfen" if est.canceled_open == 1
+                       else f"{est.canceled_open} Ausfälle prüfen")
+    return (
+        f'<div class="bm-card"><div class="bm-head"><span>💶 Erstattung</span>'
+        f'<span class="bm-muted">{today:%m/%Y}</span></div>'
+        f'<div class="bm-value">{eur(est.payable)}</div>'
+        f'<div class="bm-muted">bisher angelaufen (Schätzung)</div>'
+        + "".join(f'<div class="bm-muted">{html.escape(d)}</div>' for d in details)
+        + "</div>"
+    )
+
+
+def render_today(
+    df: pd.DataFrame, car_df: pd.DataFrame, route_label: str, timezone: str, db_path: str
+) -> None:
     route_df = df[df["route_label"] == route_label]
     if route_df.empty:
         return
@@ -585,6 +623,7 @@ def render_today(df: pd.DataFrame, car_df: pd.DataFrame, route_label: str, timez
     st.markdown(f"**{title}**")
     cards = "".join(_train_card(row) for _, row in shown.iterrows())
     cards += _car_card(car_df, route_label, day, train_minutes)
+    cards += _refund_card(db_path, today)
     st.markdown(f'<div class="bm-cards">{cards}</div>', unsafe_allow_html=True)
 
 
@@ -982,7 +1021,7 @@ def main() -> None:
     for route_label, tab in zip(ROUTE_ORDER, [tab_morning, tab_evening]):
         with tab:
             _render_data_freshness(full_df, route_label, settings.timezone)
-            render_today(df, car_df, route_label, settings.timezone)
+            render_today(df, car_df, route_label, settings.timezone, settings.database_path)
 
             matrix, day_cols, weekend_cols = build_route_matrix(
                 df, route_label=route_label, end_date=end_date, days=30, detailed=detailed
