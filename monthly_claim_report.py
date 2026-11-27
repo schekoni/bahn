@@ -136,7 +136,44 @@ def format_eur(value: float) -> str:
     return f"{value:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def read_month(database: Path, start: date, end: date) -> tuple[list[Case], str | None, str | None]:
+SELECTIONS = {
+    "most_delayed": "je Fahrt der am stärksten verspätete Zug",
+    "least_delayed": "vorsichtig: je Fahrt der am wenigsten verspätete Zug",
+}
+DEFAULT_SELECTION = "most_delayed"
+
+
+def _selection(selection: str | None) -> str:
+    value = (selection or os.getenv("CLAIM_SELECTION") or DEFAULT_SELECTION).strip().lower()
+    return value if value in SELECTIONS else DEFAULT_SELECTION
+
+
+def keep_least_delayed_per_commute(candidates: list[Case]) -> list[Case]:
+    """Conservative choice when it is unclear which train was taken.
+
+    Per route and day the train with the smallest delay is assumed. If any
+    claim train of that commute arrived less than 20 minutes late, the day is
+    dropped. A day where every train was cancelled stays as a cancellation.
+    """
+    by_commute: dict[tuple[str, str], list[Case]] = {}
+    for case in candidates:
+        by_commute.setdefault((case.service_date, case.route_label), []).append(case)
+
+    selected: list[Case] = []
+    for group in by_commute.values():
+        ran = [c for c in group if not c.canceled and c.delay_minutes is not None]
+        if ran:
+            least = min(ran, key=lambda c: (c.delay_minutes, c.planned_departure))
+            if least.delay_minutes >= 20:
+                selected.append(least)
+        elif group:
+            selected.append(min(group, key=lambda c: c.planned_departure))
+    return sorted(selected, key=lambda item: (item.service_date, item.planned_departure, item.train_name))
+
+
+def read_month(
+    database: Path, start: date, end: date, selection: str | None = None
+) -> tuple[list[Case], str | None, str | None]:
     if not database.exists():
         raise FileNotFoundError(f"Datenbank nicht gefunden: {database}")
 
@@ -145,7 +182,9 @@ def read_month(database: Path, start: date, end: date) -> tuple[list[Case], str 
             "SELECT MIN(service_date), MAX(service_date) FROM observations"
         ).fetchone()
         available_from, available_through = bounds
-        cases: list[Case] = []
+        # Every claim-train journey with a known outcome (on time, late or
+        # cancelled); journeys without arrival information are unknown and skipped.
+        candidates: list[Case] = []
         for route, train in TRAIN_FILTERS:
             rows = con.execute(
                 """SELECT service_date, train_name, route_label, planned_departure,
@@ -171,12 +210,16 @@ def read_month(database: Path, start: date, end: date) -> tuple[list[Case], str 
                     is_canceled, delay = True, None
                 else:
                     is_canceled = False
-                if is_canceled or (delay is not None and delay >= 20):
-                    cases.append(Case(
+                if is_canceled or delay is not None:
+                    candidates.append(Case(
                         service_date, train_name, route_label, departure,
                         planned_arrival, actual_arrival, delay, is_canceled,
                     ))
-    return keep_one_case_per_commute(cases), available_from, available_through
+
+    if _selection(selection) == "least_delayed":
+        return keep_least_delayed_per_commute(candidates), available_from, available_through
+    claimable = [c for c in candidates if c.canceled or c.delay_minutes >= 20]
+    return keep_one_case_per_commute(claimable), available_from, available_through
 
 
 def _hhmm(raw: str | None) -> str:
@@ -208,6 +251,7 @@ def build_message(month: str, cases: list[Case], available_from: str | None,
     estimate = estimate_compensation(cases)
     lines += [
         "",
+        f"Auswahl: {SELECTIONS[_selection(None)]}.",
         f"Voraussichtliche Entschädigung (Schätzung, {estimate.tariff_label}): {format_eur(estimate.payable)}",
         f"  {estimate.full_cases} × ab 60 Min. à {format_eur(estimate.rate)}"
         f" + {estimate.collected_minutes} gesammelte Minuten aus Fällen ab 20 Min."

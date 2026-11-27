@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import unittest
 
-from monthly_claim_report import Case, estimate_compensation, format_eur, keep_one_case_per_commute
+from monthly_claim_report import (
+    Case,
+    estimate_compensation,
+    format_eur,
+    keep_least_delayed_per_commute,
+    keep_one_case_per_commute,
+)
 
 MORNING = "Morning Freiburg->Offenburg"
 EVENING = "Afternoon Offenburg->Freiburg"
@@ -67,6 +73,35 @@ class ReadMonthTests(unittest.TestCase):
         self.assertEqual((by_train["ICE373"].delay_minutes, by_train["ICE373"].canceled), (106, False))
         self.assertEqual((by_train["ECE8"].delay_minutes, by_train["ECE8"].canceled), (None, True))
         self.assertEqual((by_train["ICE376"].delay_minutes, by_train["ICE376"].canceled), (None, True))
+
+
+class LeastDelayedTests(unittest.TestCase):
+    def test_day_dropped_when_another_train_was_nearly_on_time(self) -> None:
+        kept = keep_least_delayed_per_commute([
+            case("2026-09-01", "ICE376", MORNING, "06:55", 24),
+            case("2026-09-01", "ECE8", MORNING, "07:27", 9),
+        ])
+        self.assertEqual(kept, [])
+
+    def test_takes_smallest_delay_when_all_trains_were_late(self) -> None:
+        kept = keep_least_delayed_per_commute([
+            case("2026-09-04", "ICE73", EVENING, "16:00", 64),
+            case("2026-09-04", "ICE373", EVENING, "16:30", 83),
+            case("2026-09-04", "RE5339", EVENING, "16:35", 31),
+        ])
+        self.assertEqual([(c.train_name, c.delay_minutes) for c in kept], [("RE5339", 31)])
+
+    def test_cancellation_only_if_nothing_ran(self) -> None:
+        all_cancelled = keep_least_delayed_per_commute([
+            case("2026-09-03", "ICE376", MORNING, "06:55", None, canceled=True),
+            case("2026-09-03", "ECE8", MORNING, "07:27", None, canceled=True),
+        ])
+        self.assertEqual([c.train_name for c in all_cancelled], ["ICE376"])
+        one_ran_on_time = keep_least_delayed_per_commute([
+            case("2026-09-05", "ICE376", MORNING, "06:55", None, canceled=True),
+            case("2026-09-05", "ECE8", MORNING, "07:27", 2),
+        ])
+        self.assertEqual(one_ran_on_time, [])
 
 
 class CompensationTests(unittest.TestCase):

@@ -10,6 +10,14 @@ on:
         description: "Berichtsmonat YYYY-MM (leer = Vormonat)"
         required: false
         default: ""
+      selection:
+        description: "Zugauswahl je Pendelfahrt"
+        type: choice
+        required: false
+        default: most_delayed
+        options:
+          - most_delayed
+          - least_delayed
 
 permissions:
   contents: read
@@ -51,6 +59,7 @@ jobs:
           # Passed via env (not interpolated into the script) to avoid shell injection;
           # monthly_claim_report.py validates the YYYY-MM format.
           REPORT_MONTH: ${{ inputs.month }}
+          CLAIM_SELECTION: ${{ inputs.selection }}
           MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           args=()
