@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import os
 import re
 import sqlite3
 from pathlib import Path
@@ -966,7 +967,32 @@ def _render_data_freshness(df: pd.DataFrame, route_label: str, timezone: str) ->
         st.caption(text)
 
 
+def _apply_streamlit_secrets(keys: tuple[str, ...] = ("CLAIM_TICKET_PRICE", "CLAIM_TARIFF")) -> None:
+    """Expose Streamlit Cloud secrets to the shared claim code, which reads env vars.
+
+    Streamlit only mirrors root-level string secrets into the environment; this also
+    accepts numbers and keys placed inside a section (e.g. [general]).
+    """
+    try:
+        secrets = dict(st.secrets)
+    except Exception:  # no secrets.toml locally
+        return
+    sections = [secrets] + [v for v in secrets.values() if isinstance(v, dict) or hasattr(v, "keys")]
+    for key in keys:
+        if os.getenv(key):
+            continue
+        for section in sections:
+            try:
+                value = section.get(key)
+            except Exception:
+                value = None
+            if value not in (None, ""):
+                os.environ[key] = str(value)
+                break
+
+
 def main() -> None:
+    _apply_streamlit_secrets()
     st.set_page_config(
         page_title="DB Pünktlichkeitsmonitor",
         layout="wide",
