@@ -5,6 +5,11 @@ on:
     # Run at both possible UTC hours; the script sends only at 08:00 Europe/Berlin.
     - cron: "0 6,7 1 * *"
   workflow_dispatch:
+    inputs:
+      month:
+        description: "Berichtsmonat YYYY-MM (leer = Vormonat)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -42,4 +47,13 @@ jobs:
           python-version: "3.13"
 
       - name: Generate and send previous month's report
-        run: python monthly_claim_report.py ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
+        env:
+          # Passed via env (not interpolated into the script) to avoid shell injection;
+          # monthly_claim_report.py validates the YYYY-MM format.
+          REPORT_MONTH: ${{ inputs.month }}
+          MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          args=()
+          if [ "$MANUAL_RUN" = "true" ]; then args+=(--force); fi
+          if [ -n "$REPORT_MONTH" ]; then args+=(--month "$REPORT_MONTH"); fi
+          python monthly_claim_report.py "${args[@]}"
