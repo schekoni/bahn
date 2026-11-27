@@ -15,11 +15,27 @@ from zoneinfo import ZoneInfo
 TZ_NAME = "Europe/Berlin"
 TRAIN_FILTERS = (
     ("Morning Freiburg->Offenburg", "ICE376"),
+    ("Morning Freiburg->Offenburg", "ECE8"),
     ("Afternoon Offenburg->Freiburg", "ICE73"),
     ("Afternoon Offenburg->Freiburg", "ICE373"),
+    ("Afternoon Offenburg->Freiburg", "RE5339"),
 )
-AFTERNOON_ROUTE = "Afternoon Offenburg->Freiburg"
-AFTERNOON_TRAINS = {"ICE73", "ICE373"}
+
+# Flat compensation per case from 60 minutes delay at the destination for season
+# tickets (bahn.de, Fahrgastrechte "Regelungen"). Season-ticket holders except
+# BahnCard 100 may also collect cases from 20 minutes; how collected minutes turn
+# into money is not spelled out by DB, so the estimate counts one flat amount per
+# 60 collected minutes and is labelled as an estimate.
+TARIFFS = {
+    "fv2": ("Fernverkehr-Zeitkarte, 2. Klasse", 5.00, True),
+    "fv1": ("Fernverkehr-Zeitkarte, 1. Klasse", 7.50, True),
+    "nv2": ("Nahverkehr-Zeitkarte, 2. Klasse", 1.50, True),
+    "nv1": ("Nahverkehr-Zeitkarte, 1. Klasse", 2.25, True),
+    "bc100_2": ("BahnCard 100, 2. Klasse", 10.00, False),
+    "bc100_1": ("BahnCard 100, 1. Klasse", 15.00, False),
+}
+DEFAULT_TARIFF = "fv2"
+MIN_PAYOUT_EUR = 4.00
 
 
 @dataclass(frozen=True)
@@ -41,24 +57,21 @@ def previous_month(today: date) -> tuple[date, date]:
     return start, end
 
 
-def keep_most_delayed_afternoon(cases: list[Case]) -> list[Case]:
-    """Keep only the more delayed of the two afternoon ICEs on each day."""
-    selected: list[Case] = []
-    afternoon_by_date: dict[str, Case] = {}
+def keep_one_case_per_commute(cases: list[Case]) -> list[Case]:
+    """Only one train is ridden per route and day: keep the most delayed one.
 
+    Several claim trains run in each commute window (e.g. ICE376 and ECE8 in the
+    morning). Claiming more than one of them for the same trip would be wrong.
+    Cancellations stay listed separately because they must be checked by hand.
+    """
+    selected: list[Case] = []
+    best: dict[tuple[str, str], Case] = {}
     for case in cases:
-        is_comparable_afternoon_delay = (
-            case.route_label == AFTERNOON_ROUTE
-            and case.train_name in AFTERNOON_TRAINS
-            and not case.canceled
-            and case.delay_minutes is not None
-            and case.delay_minutes >= 20
-        )
-        if not is_comparable_afternoon_delay:
+        if case.canceled or case.delay_minutes is None:
             selected.append(case)
             continue
-
-        current = afternoon_by_date.get(case.service_date)
+        key = (case.service_date, case.route_label)
+        current = best.get(key)
         if current is None or (
             case.delay_minutes > current.delay_minutes
             or (
@@ -66,10 +79,61 @@ def keep_most_delayed_afternoon(cases: list[Case]) -> list[Case]:
                 and case.planned_departure < current.planned_departure
             )
         ):
-            afternoon_by_date[case.service_date] = case
-
-    selected.extend(afternoon_by_date.values())
+            best[key] = case
+    selected.extend(best.values())
     return sorted(selected, key=lambda item: (item.service_date, item.planned_departure, item.train_name))
+
+
+# Backwards-compatible name.
+keep_most_delayed_afternoon = keep_one_case_per_commute
+
+
+@dataclass(frozen=True)
+class Compensation:
+    tariff_label: str
+    rate: float
+    full_cases: int
+    collected_minutes: int
+    collected_units: int
+    canceled_open: int
+    total: float
+    cap: float | None
+
+    @property
+    def payable(self) -> float:
+        return min(self.total, self.cap) if self.cap is not None else self.total
+
+
+def estimate_compensation(
+    cases: list[Case], tariff_key: str | None = None, ticket_price: float | None = None
+) -> Compensation:
+    tariff_key = (tariff_key or os.getenv("CLAIM_TARIFF") or DEFAULT_TARIFF).strip().lower()
+    label, rate, can_collect = TARIFFS.get(tariff_key, TARIFFS[DEFAULT_TARIFF])
+    if ticket_price is None:
+        raw_price = (os.getenv("CLAIM_TICKET_PRICE") or "").replace(",", ".").strip()
+        ticket_price = float(raw_price) if raw_price else None
+
+    full = [c for c in cases if not c.canceled and c.delay_minutes is not None and c.delay_minutes >= 60]
+    collected = [
+        c for c in cases
+        if not c.canceled and c.delay_minutes is not None and 20 <= c.delay_minutes < 60
+    ]
+    collected_minutes = sum(c.delay_minutes for c in collected) if can_collect else 0
+    units = collected_minutes // 60
+    return Compensation(
+        tariff_label=label,
+        rate=rate,
+        full_cases=len(full),
+        collected_minutes=collected_minutes,
+        collected_units=units,
+        canceled_open=sum(1 for c in cases if c.canceled),
+        total=rate * (len(full) + units),
+        cap=round(ticket_price * 0.25, 2) if ticket_price else None,
+    )
+
+
+def format_eur(value: float) -> str:
+    return f"{value:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def read_month(database: Path, start: date, end: date) -> tuple[list[Case], str | None, str | None]:
@@ -103,7 +167,7 @@ def read_month(database: Path, start: date, end: date) -> tuple[list[Case], str 
                         service_date, train_name, route_label, departure,
                         planned_arrival, actual_arrival, delay, is_canceled,
                     ))
-    return keep_most_delayed_afternoon(cases), available_from, available_through
+    return keep_one_case_per_commute(cases), available_from, available_through
 
 
 def _hhmm(raw: str | None) -> str:
@@ -132,6 +196,18 @@ def build_message(month: str, cases: list[Case], available_from: str | None,
     month_end = next_month - timedelta(days=1)
     if not available_from or date.fromisoformat(available_from) > start or not available_through or date.fromisoformat(available_through) < month_end:
         lines.append("ACHTUNG: Die Datenbank deckt den gesamten Berichtsmonat nicht nachweislich ab. Fehlende Einträge sind kein Nachweis für pünktliche oder ausgefallene Fahrten.")
+    estimate = estimate_compensation(cases)
+    lines += [
+        "",
+        f"Voraussichtliche Entschädigung (Schätzung, {estimate.tariff_label}): {format_eur(estimate.payable)}",
+        f"  {estimate.full_cases} × ab 60 Min. à {format_eur(estimate.rate)}"
+        f" + {estimate.collected_minutes} gesammelte Minuten aus Fällen ab 20 Min."
+        f" (≈ {estimate.collected_units} × {format_eur(estimate.rate)})",
+    ]
+    if estimate.cap is not None:
+        lines.append(f"  Obergrenze 25 % des Zeitkartenwerts: {format_eur(estimate.cap)}")
+    if estimate.canceled_open:
+        lines.append(f"  Nicht eingerechnet: {estimate.canceled_open} Ausfall/Ausfälle (einzeln prüfen).")
     lines += [
         "",
         "VORLAGE ZUR PRÜFUNG UND ANSCHLIESSENDEN EINREICHUNG BEI DER DB",

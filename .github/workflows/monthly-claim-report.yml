@@ -26,6 +26,10 @@ jobs:
       CLAIM_SUBSCRIPTION_NAME: ${{ secrets.CLAIM_SUBSCRIPTION_NAME }}
       CLAIM_SUBSCRIPTION_NUMBER: ${{ secrets.CLAIM_SUBSCRIPTION_NUMBER }}
       CLAIM_TRAVELER_NAME: ${{ secrets.CLAIM_TRAVELER_NAME }}
+      # Optional: fv2 (default), fv1, nv2, nv1, bc100_2, bc100_1 and the ticket price
+      # per validity period for the 25 % cap of the compensation estimate.
+      CLAIM_TARIFF: ${{ vars.CLAIM_TARIFF }}
+      CLAIM_TICKET_PRICE: ${{ secrets.CLAIM_TICKET_PRICE }}
       SMTP_HOST: smtp.gmail.com
       SMTP_PORT: "465"
     steps:
