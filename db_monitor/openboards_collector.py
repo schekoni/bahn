@@ -153,16 +153,29 @@ def _fetch_board_window(
     start: datetime,
     end: datetime,
 ) -> list[dict[str, Any]]:
-    results: list[dict[str, Any]] = []
+    results: dict[str, dict[str, Any]] = {}
+    unidentified: list[dict[str, Any]] = []
     cursor = start
     # Keep individual requests to two hours: it fits the boards API window and
     # avoids silently truncated results on the afternoon arrival lookahead.
     while cursor < end:
         chunk_end = min(cursor + timedelta(hours=2), end)
         payload = client.get_open_board(board, eva, cursor, chunk_end)
-        results.extend(_entries(payload, board))
+        for entry in _entries(payload, board):
+            # Adjacent chunks can return the same journey twice; keep the latest.
+            identity = _entry_identity(entry)
+            if identity:
+                results[identity] = entry
+            else:
+                unidentified.append(entry)
         cursor = chunk_end
-    return results
+    return [*results.values(), *unidentified]
+
+
+def _in_window(planned: datetime | None, service_date: date, window: RouteWindow) -> bool:
+    if planned is None or planned.date() != service_date:
+        return False
+    return window.start_time <= planned.time() <= window.end_time
 
 
 def collect_openboards_observations(
@@ -170,44 +183,33 @@ def collect_openboards_observations(
     windows: list[RouteWindow],
     allowed_train_names_by_route: dict[str, set[str]] | None = None,
     fallback_departure_times_by_route_train: dict[tuple[str, str], time] | None = None,
+    service_date: date | None = None,
 ) -> list[Observation]:
     tz = ZoneInfo(settings.timezone)
     now = datetime.now(tz)
     now_naive = now.replace(tzinfo=None)
-    service_date: date = now.date()
+    if service_date is None:
+        service_date = now.date()
     client = DBApiClient(settings)
     observations: list[Observation] = []
 
     for window in windows:
         dep_start = datetime.combine(service_date, window.start_time).replace(tzinfo=tz)
         dep_end = datetime.combine(service_date, window.end_time).replace(tzinfo=tz)
-        arr_start = dep_start
-        arr_end = dep_end + timedelta(hours=3)
+        # The boards API filters by the *current* (real-time) event time. Query
+        # well past the window so heavily delayed trains are still returned, then
+        # filter on the planned time below.
         departures = _fetch_board_window(
-            client, "departures", window.source_eva, dep_start, dep_end + timedelta(minutes=1)
+            client, "departures", window.source_eva, dep_start, dep_end + timedelta(hours=3)
         )
-        arrivals = _fetch_board_window(client, "arrivals", window.target_eva, arr_start, arr_end)
+        arrivals = _fetch_board_window(
+            client, "arrivals", window.target_eva, dep_start, dep_end + timedelta(hours=5)
+        )
 
-        departures = [
-            item for item in departures
-            if _contains_eva(
-                {
-                    "via": (item.get("transport") or {}).get("via", []),
-                    "destination": (item.get("journeyInfo") or {}).get("destination"),
-                },
-                window.target_eva,
-            )
-        ]
-        arrivals = [
-            item for item in arrivals
-            if _contains_eva(
-                {
-                    "via": (item.get("transport") or {}).get("via", []),
-                    "origin": (item.get("journeyInfo") or {}).get("origin"),
-                },
-                window.source_eva,
-            )
-        ]
+        # Direction is proven by the same journey appearing on the target
+        # station's arrival board after leaving the source station. The via list
+        # is capped (maxViaStops), so regional trains with many intermediate stops
+        # often omit the target; it is only used as a fallback.
         arrivals_by_id = {
             _entry_identity(item): item for item in arrivals if _entry_identity(item)
         }
@@ -218,7 +220,24 @@ def collect_openboards_observations(
                 continue
             train_name, line = _train_fields(dep)
             planned_departure = _local_datetime(dep.get("timeSchedule"), settings.timezone)
-            if planned_departure is None:
+            if not _in_window(planned_departure, service_date, window):
+                continue
+
+            arr = arrivals_by_id.get(journey_id)
+            planned_arrival_check = (
+                _local_datetime(arr.get("timeSchedule"), settings.timezone) if arr else None
+            )
+            if arr is not None and (
+                planned_arrival_check is None or planned_arrival_check < planned_departure
+            ):
+                arr = None
+            if arr is None and not _contains_eva(
+                {
+                    "via": (dep.get("transport") or {}).get("via", []),
+                    "destination": (dep.get("journeyInfo") or {}).get("destination"),
+                },
+                window.target_eva,
+            ):
                 continue
             actual_dep_time = _local_datetime(dep.get("time"), settings.timezone)
             dep_type = str(dep.get("timeType") or "").upper()
@@ -240,7 +259,6 @@ def collect_openboards_observations(
                 if actual_departure else 0
             )
 
-            arr = arrivals_by_id.get(journey_id)
             planned_arrival = _local_datetime(arr.get("timeSchedule"), settings.timezone) if arr else None
             actual_arr_time = _local_datetime(arr.get("time"), settings.timezone) if arr else None
             arr_type = str(arr.get("timeType") or "").upper() if arr else ""

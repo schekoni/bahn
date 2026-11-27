@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
@@ -166,8 +167,9 @@ class OpenBoardsCollectorTests(unittest.TestCase):
         def board_response(_client, board, _eva, _start, _end):
             return [departure] if board == "departures" else [arrival]
 
+        window = replace(self.window, start_time=(dep_plan - timedelta(minutes=5)).time())
         with patch("db_monitor.openboards_collector._fetch_board_window", side_effect=board_response):
-            rows = collect_openboards_observations(self.settings, [self.window])
+            rows = collect_openboards_observations(self.settings, [window])
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].schedule_deviation_minutes, 6)
@@ -176,6 +178,64 @@ class OpenBoardsCollectorTests(unittest.TestCase):
         self.assertFalse(rows[0].canceled_arrival)
         self.assertEqual(rows[0].actual_arrival, arr_actual.replace(tzinfo=None))
         self.assertEqual(rows[0].arrival_reason, "Verspätung eines vorausfahrenden Zuges")
+
+    def test_keeps_train_when_via_list_is_truncated_but_arrival_matches(self) -> None:
+        # Regional trains have more intermediate stops than maxViaStops, so the
+        # target station can be missing from via (seen with RE5339 / RE17004).
+        departure = self._entry(
+            board="departure", identity="journey-re", time_type="REAL",
+            when=self.departure, via="8000999",
+        )
+        arrival = self._entry(
+            board="arrival", identity="journey-re", time_type="REAL",
+            when=self.arrival, via="8000998",
+        )
+
+        def board_response(_client, board, _eva, _start, _end):
+            return [departure] if board == "departures" else [arrival]
+
+        with patch("db_monitor.openboards_collector._fetch_board_window", side_effect=board_response):
+            rows = collect_openboards_observations(self.settings, [self.window])
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].planned_arrival, self.arrival.replace(tzinfo=None))
+
+    def test_filters_on_planned_time_not_realtime(self) -> None:
+        before_window = self._entry(
+            board="departure", identity="early", time_type="REAL",
+            when=self.departure - timedelta(hours=2), via="8000107",
+        )
+        # Planned before the window but delayed into it: must not be counted.
+        before_window["time"] = self.departure.isoformat()
+        delayed = self._entry(
+            board="departure", identity="delayed", time_type="REAL",
+            when=self.departure, via="8000107",
+        )
+        # Planned inside the window but running very late: must still be counted.
+        delayed["time"] = (self.departure + timedelta(minutes=90)).isoformat()
+
+        def board_response(_client, board, _eva, _start, _end):
+            return [before_window, delayed] if board == "departures" else []
+
+        with patch("db_monitor.openboards_collector._fetch_board_window", side_effect=board_response):
+            rows = collect_openboards_observations(self.settings, [self.window])
+
+        self.assertEqual([row.train_id for row in rows], ["delayed"])
+
+    def test_fetch_window_queries_past_window_end_and_dedupes_chunks(self) -> None:
+        from db_monitor.openboards_collector import _fetch_board_window
+
+        entry = self._entry(
+            board="departure", identity="dup", time_type="REAL",
+            when=self.departure, via="8000107",
+        )
+        client = Mock()
+        client.get_open_board.return_value = {"departures": [entry]}
+        start = datetime(2026, 11, 27, 15, 30, tzinfo=self.tz)
+        rows = _fetch_board_window(client, "departures", "8000290", start, start + timedelta(hours=5))
+
+        self.assertEqual(client.get_open_board.call_count, 3)
+        self.assertEqual(len(rows), 1)
 
     def test_reuses_existing_ids_when_provider_changes_midday(self) -> None:
         now = datetime.now(self.tz)
