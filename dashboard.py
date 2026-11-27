@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from pathlib import Path
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 
@@ -28,6 +29,15 @@ CAR_ROUTE_BY_TRAIN_ROUTE = {
 }
 
 SUMMARY_COLS = ["Trend", "Med.", "Ø", "Ausf."]
+
+CAR_DATA_MAX_AGE_DAYS = 7
+
+# Commute windows that matter for the dashboard. Collection runs wider
+# (see MORNING_START/END in the workflow) so the windows can change later.
+DISPLAY_WINDOWS = {
+    "Morning Freiburg->Offenburg": ("06:30", "07:30"),
+    "Afternoon Offenburg->Freiburg": ("15:30", "17:30"),
+}
 
 PRIORITY_TRAINS = {
     "Morning Freiburg->Offenburg": ["ECE8", "ICE376"],
@@ -63,25 +73,36 @@ def _clean_label_text(value: object) -> str:
     return text
 
 
-def _coerce_datetime_naive(series: pd.Series) -> pd.Series:
-    parsed = pd.to_datetime(series, errors="coerce")
-    if isinstance(parsed.dtype, pd.DatetimeTZDtype):
-        return parsed.dt.tz_localize(None)
-    if parsed.dtype.kind == "M":
-        return parsed
+def _coerce_datetime_naive(series: pd.Series, timezone: str = "Europe/Berlin") -> pd.Series:
+    """Parse ISO timestamps into naive local time.
 
-    def _to_naive(value: object) -> pd.Timestamp | pd.NaT:
-        ts = pd.to_datetime(value, errors="coerce")
-        if pd.isna(ts):
-            return pd.NaT
-        if getattr(ts, "tzinfo", None) is not None:
-            try:
-                return ts.tz_localize(None)
-            except TypeError:
-                return ts.tz_convert(None)
-        return ts
+    Columns mix naive local values (planned times) with offset-aware ones whose
+    offset changes with DST (+01:00 / +02:00). Parsing those together is
+    deprecated in pandas, so aware and naive values are parsed separately.
+    """
+    text = series.astype("string").str.strip()
+    aware = text.str.contains(r"(?:[+-]\d{2}:?\d{2}|Z)$", regex=True, na=False)
+    result = pd.Series(pd.NaT, index=series.index, dtype="datetime64[ns]")
+    if aware.any():
+        result.loc[aware] = (
+            pd.to_datetime(text[aware], utc=True, errors="coerce", format="ISO8601")
+            .dt.tz_convert(timezone)
+            .dt.tz_localize(None)
+        )
+    if (~aware).any():
+        result.loc[~aware] = pd.to_datetime(text[~aware], errors="coerce", format="ISO8601")
+    return result
 
-    return pd.to_datetime(series.map(_to_naive), errors="coerce")
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _load_data_cached(db_path: str, timezone: str, db_mtime: float) -> pd.DataFrame:
+    # db_mtime is part of the cache key: a new collector commit invalidates it.
+    return load_data(db_path, timezone)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _load_car_data_cached(db_path: str, db_mtime: float) -> pd.DataFrame:
+    return load_car_data(db_path)
 
 
 def load_data(db_path: str, timezone: str) -> pd.DataFrame:
@@ -129,7 +150,7 @@ def load_data(db_path: str, timezone: str) -> pd.DataFrame:
 
     for col in ("observation_ts", "planned_departure", "planned_arrival", "actual_arrival"):
         if col in df.columns:
-            df[col] = _coerce_datetime_naive(df[col])
+            df[col] = _coerce_datetime_naive(df[col], timezone)
 
     df["service_date"] = pd.to_datetime(df["service_date"]).dt.date
     df["canceled"] = df["canceled"].astype(bool)
@@ -140,10 +161,16 @@ def load_data(db_path: str, timezone: str) -> pd.DataFrame:
     df["departure_reason"] = df["departure_reason"].map(_clean_reason_text)
     df["arrival_reason"] = df["arrival_reason"].map(_clean_reason_text)
     df["departure_hhmm"] = df["planned_departure"].dt.strftime("%H:%M")
-    df["zug"] = df.apply(
-        lambda r: f"{(r['train_name'] or r['line'] or 'Unbekannt')} | {r['departure_hhmm']}",
-        axis=1,
+    # One row per train: small timetable shifts (16:00 -> 16:04, construction
+    # timetables) must not split a train into several rows. Label each train with
+    # its most frequent planned departure time.
+    df["train_key"] = [
+        name or line or "Unbekannt" for name, line in zip(df["train_name"], df["line"])
+    ]
+    df["typical_hhmm"] = df.groupby(["route_label", "train_key"])["departure_hhmm"].transform(
+        lambda s: s.value_counts().idxmax()
     )
+    df["zug"] = df["train_key"] + " | " + df["typical_hhmm"]
 
     now_local = datetime.now(ZoneInfo(timezone)).replace(tzinfo=None)
     deadline = df["planned_arrival"] + pd.to_timedelta(1, unit="h")
@@ -419,7 +446,7 @@ def build_route_matrix(
 
     meta = (
         route_30.groupby("zug", as_index=False)
-        .agg(departure_hhmm=("departure_hhmm", "first"))
+        .agg(departure_hhmm=("typical_hhmm", "first"))
         .rename(columns={"zug": "Zug"})
     )
     result = result.merge(meta, on="Zug", how="left")
@@ -569,6 +596,13 @@ def _render_route_car_metric(car_df: pd.DataFrame, route_label: str) -> None:
     latest_row = route_series[route_series["service_date"] == latest_date]
     avg_val = int(round(float(route_series["auto_minutes"].mean())))
 
+    age_days = (date.today() - latest_date).days if isinstance(latest_date, date) else 0
+    if age_days > CAR_DATA_MAX_AGE_DAYS:
+        st.caption(
+            f"🚗 Keine aktuellen Auto-Daten (letzte Messung {latest_date:%d.%m.%Y}, Ø {avg_val} min)."
+        )
+        return
+
     if not latest_row.empty:
         today_val = int(latest_row.iloc[0]["auto_minutes"])
         delta = today_val - avg_val
@@ -590,7 +624,7 @@ def render_combined_train_chart(df: pd.DataFrame, route_label: str, timezone: st
 
     trains = (
         route_df.groupby("zug", as_index=False)
-        .agg(departure_hhmm=("departure_hhmm", "first"))
+        .agg(departure_hhmm=("typical_hhmm", "first"))
         .sort_values(by=["departure_hhmm", "zug"], kind="stable")
     )
 
@@ -684,6 +718,30 @@ def render_combined_train_chart(df: pd.DataFrame, route_label: str, timezone: st
                 st.dataframe(reason_stats, use_container_width=True, hide_index=True)
 
 
+def _filter_display_windows(df: pd.DataFrame) -> pd.DataFrame:
+    keep = pd.Series(True, index=df.index)
+    for route_label, (start, end) in DISPLAY_WINDOWS.items():
+        on_route = df["route_label"] == route_label
+        in_window = df["typical_hhmm"].between(start, end)
+        keep &= ~on_route | in_window
+    return df[keep]
+
+
+def _render_data_freshness(df: pd.DataFrame, route_label: str, timezone: str) -> None:
+    route_df = df[df["route_label"] == route_label]
+    if route_df.empty:
+        return
+    last_obs = route_df["observation_ts"].max()
+    last_day = route_df["service_date"].max()
+    today = datetime.now(ZoneInfo(timezone)).date()
+    stale = (today - last_day).days > 1
+    text = f"Datenstand: zuletzt erfasst {last_obs:%d.%m. %H:%M}" if pd.notna(last_obs) else "Datenstand: unbekannt"
+    if stale:
+        st.warning(f"{text} – seit {last_day:%d.%m.} keine neuen Fahrten gespeichert. Datensammlung prüfen.")
+    else:
+        st.caption(text)
+
+
 def main() -> None:
     st.set_page_config(
         page_title="DB Pünktlichkeitsmonitor",
@@ -701,8 +759,17 @@ def main() -> None:
     )
 
     settings = load_settings()
-    df = load_data(settings.database_path, settings.timezone)
-    car_df = load_car_data(settings.database_path)
+    db_file = Path(settings.database_path)
+    if not db_file.exists():
+        st.error(f"Datenbank nicht gefunden: `{settings.database_path}`")
+        return
+    db_mtime = db_file.stat().st_mtime
+    try:
+        df = _load_data_cached(settings.database_path, settings.timezone, db_mtime)
+        car_df = _load_car_data_cached(settings.database_path, db_mtime)
+    except sqlite3.Error as exc:
+        st.error(f"Datenbank konnte nicht gelesen werden: {exc}")
+        return
 
     if df.empty:
         st.info("Noch keine Daten vorhanden. Erst `python run_collection.py` ausführen.")
@@ -716,6 +783,15 @@ def main() -> None:
         st.markdown("**Farbcode (Minuten Verspätung)**")
         st.markdown(_LEGEND_HTML, unsafe_allow_html=True)
         st.caption("S = Abfahrt · A = Ankunft")
+        show_all_trains = st.toggle(
+            "Alle erfassten Züge anzeigen",
+            value=False,
+            help="Standard: nur Pendelfenster 06:30–07:30 (morgens) und 15:30–17:30 (abends).",
+        )
+
+    full_df = df
+    if not show_all_trains:
+        df = _filter_display_windows(df)
 
     route_payloads: list[tuple[str, pd.DataFrame, list[str], list[str]]] = []
     for route_label in ROUTE_ORDER:
@@ -728,6 +804,7 @@ def main() -> None:
 
     for (route_label, matrix, day_cols, weekend_cols), tab in zip(route_payloads, [tab_morgen, tab_abend]):
         with tab:
+            _render_data_freshness(full_df, route_label, settings.timezone)
             if matrix.empty:
                 st.write("Keine Daten für die letzten 30 Tage vorhanden.")
                 continue
@@ -738,22 +815,17 @@ def main() -> None:
                     _render_route_car_metric(car_df, route_label)
 
             matrix_display = matrix.set_index("Zug")
-            stat_cols = [c for c in SUMMARY_COLS if c in matrix_display.columns]
+            stat_cols = [c for c in ["Ø", "Med.", "Ausf.", "Trend"] if c in matrix_display.columns]
             day_view_cols = [c for c in matrix_display.columns if c not in stat_cols]
+            matrix_display = matrix_display[stat_cols + day_view_cols]
 
-            left, right = st.columns([0.80, 0.20], gap="small")
-            with left:
-                st.dataframe(
-                    style_matrix(matrix_display[day_view_cols], day_cols, weekend_cols),
-                    use_container_width=True,
-                    hide_index=False,
-                )
-            with right:
-                st.dataframe(
-                    style_matrix(matrix_display[stat_cols], [], None),
-                    use_container_width=True,
-                    hide_index=True,
-                )
+            st.dataframe(
+                style_matrix(matrix_display, day_cols, weekend_cols),
+                use_container_width=True,
+                hide_index=False,
+                height=min(38 + 35 * len(matrix_display), 600),
+            )
+            st.caption("Ø / Med. = Ankunftsverspätung (Min.) der letzten 30 Tage · Ausf. = Ausfalltage · Trend ggü. Vormonat")
 
             st.markdown("**Ankunfts-Verspätung je Zug**")
             render_combined_train_chart(df, route_label, settings.timezone)
@@ -761,12 +833,12 @@ def main() -> None:
     with tab_system:
         render_car_summary(car_df)
         st.subheader("Systemstatus")
-        last_obs = df["observation_ts"].max()
+        last_obs = full_df["observation_ts"].max()
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Letztes Update", str(last_obs)[:19] if pd.notna(last_obs) else "-")
-        c2.metric("Datensätze gesamt", int(len(df)))
-        c3.metric("Ankunft ohne Info", int(df["effective_arrival_missing"].sum()))
-        c4.metric("Ankunft offen", int(df["effective_arrival_open"].sum()))
+        c2.metric("Datensätze gesamt", int(len(full_df)))
+        c3.metric("Ankunft ohne Info", int(full_df["effective_arrival_missing"].sum()))
+        c4.metric("Ankunft offen", int(full_df["effective_arrival_open"].sum()))
 
 
 if __name__ == "__main__":
