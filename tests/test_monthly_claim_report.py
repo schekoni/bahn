@@ -34,6 +34,41 @@ class OneCasePerCommuteTests(unittest.TestCase):
         self.assertEqual(sorted(c.train_name for c in kept), ["ECE8", "ICE376"])
 
 
+class ReadMonthTests(unittest.TestCase):
+    def test_partly_cancelled_train_with_arrival_counts_as_delay(self) -> None:
+        import sqlite3
+        from datetime import date
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        from monthly_claim_report import read_month
+
+        with TemporaryDirectory() as tmp:
+            db = Path(tmp) / "t.db"
+            with sqlite3.connect(db) as con:
+                con.execute("""CREATE TABLE observations (service_date TEXT, train_name TEXT,
+                    route_label TEXT, planned_departure TEXT, planned_arrival TEXT, actual_arrival TEXT,
+                    arrival_schedule_deviation_minutes INTEGER, arrival_observed INTEGER,
+                    canceled INTEGER, canceled_arrival INTEGER)""")
+                con.executemany("INSERT INTO observations VALUES (?,?,?,?,?,?,?,?,?,?)", [
+                    # partly cancelled but arrived 106 min late
+                    ("2026-09-28", "ICE373", EVENING, "2026-09-28T16:30:00", "2026-09-28T17:01:00",
+                     "2026-09-28T18:47:00", 106, 1, 1, 0),
+                    # really cancelled: no arrival
+                    ("2026-09-03", "ECE8", MORNING, "2026-09-03T07:27:00", "2026-09-03T07:56:00",
+                     None, 0, 1, 1, 1),
+                    # really cancelled, old collector stored planned arrival as actual
+                    ("2026-09-04", "ICE376", MORNING, "2026-09-04T06:55:00", "2026-09-04T07:26:00",
+                     "2026-09-04T07:26:00", 0, 1, 1, 1),
+                ])
+            cases, _, _ = read_month(db, date(2026, 9, 1), date(2026, 9, 30))
+
+        by_train = {c.train_name: c for c in cases}
+        self.assertEqual((by_train["ICE373"].delay_minutes, by_train["ICE373"].canceled), (106, False))
+        self.assertEqual((by_train["ECE8"].delay_minutes, by_train["ECE8"].canceled), (None, True))
+        self.assertEqual((by_train["ICE376"].delay_minutes, by_train["ICE376"].canceled), (None, True))
+
+
 class CompensationTests(unittest.TestCase):
     CASES = [
         case("2026-11-18", "ICE373", EVENING, "16:30", 199),

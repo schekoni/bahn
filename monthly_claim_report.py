@@ -160,8 +160,17 @@ def read_month(database: Path, start: date, end: date) -> tuple[list[Case], str 
             for row in rows:
                 (service_date, train_name, route_label, departure, planned_arrival,
                  actual_arrival, deviation, arrival_observed, canceled, canceled_arrival) = row
-                is_canceled = bool(canceled or canceled_arrival)
-                delay = max(0, int(deviation or 0)) if arrival_observed else None
+                flagged_canceled = bool(canceled or canceled_arrival)
+                has_arrival = bool(arrival_observed) and actual_arrival is not None
+                delay = max(0, int(deviation or 0)) if has_arrival else None
+                # A partly cancelled train that still arrived with a real delay
+                # counts with that delay. Otherwise the flag wins: the old
+                # collector stored the *planned* arrival as actual for cancelled
+                # trains (deviation 0, sometimes negative), which is not an arrival.
+                if flagged_canceled and (delay is None or delay < 20):
+                    is_canceled, delay = True, None
+                else:
+                    is_canceled = False
                 if is_canceled or (delay is not None and delay >= 20):
                     cases.append(Case(
                         service_date, train_name, route_label, departure,
