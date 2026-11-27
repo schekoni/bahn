@@ -134,7 +134,7 @@ def main(trains_only: bool = False) -> None:
             "DB_API_PROVIDER must be either 'timetables' or 'openboards'."
         )
 
-    if trains_only or early_hours_run:
+    if trains_only:
         print("Skipped car collection for train-only update")
     else:
         today_local_str = today_local.isoformat()

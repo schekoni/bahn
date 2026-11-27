@@ -56,6 +56,17 @@ def _parse_float(raw: str) -> float:
     return float(raw.strip())
 
 
+def _env(name: str, default: str) -> str:
+    # GitHub passes an unset secret as an empty string; treat it as missing.
+    return (os.getenv(name) or "").strip() or default
+
+
+# The home address is private: set CAR_HOME_* in .env / GitHub secrets. The
+# repository only carries a neutral fallback (Freiburg Hbf).
+HOME_FALLBACK = ("Freiburg Hbf", "47.9977", "7.8414")
+WORK = ("Offenburg Ebertplatz", "48.4730", "7.9468")
+
+
 def load_settings() -> Settings:
     load_dotenv()
 
@@ -116,25 +127,28 @@ def load_route_windows() -> list[RouteWindow]:
 
 
 def load_car_routes() -> list[CarRoute]:
+    home_name = _env("CAR_HOME_NAME", "Zuhause" if os.getenv("CAR_HOME_LAT") else HOME_FALLBACK[0])
+    home_lat = _env("CAR_HOME_LAT", HOME_FALLBACK[1])
+    home_lon = _env("CAR_HOME_LON", HOME_FALLBACK[2])
     return [
         CarRoute(
             label="Car Morning Freiburg->Offenburg",
-            from_name=os.getenv("CAR_MORNING_FROM_NAME", "Freiburg Egonstrasse"),
-            to_name=os.getenv("CAR_MORNING_TO_NAME", "Offenburg Ebertplatz"),
-            from_lat=_parse_float(os.getenv("CAR_MORNING_FROM_LAT", "47.9996")),
-            from_lon=_parse_float(os.getenv("CAR_MORNING_FROM_LON", "7.8419")),
-            to_lat=_parse_float(os.getenv("CAR_MORNING_TO_LAT", "48.4730")),
-            to_lon=_parse_float(os.getenv("CAR_MORNING_TO_LON", "7.9468")),
-            target_departure=_parse_time(os.getenv("CAR_MORNING_TIME", "06:30")),
+            from_name=_env("CAR_MORNING_FROM_NAME", home_name),
+            to_name=_env("CAR_MORNING_TO_NAME", WORK[0]),
+            from_lat=_parse_float(_env("CAR_MORNING_FROM_LAT", home_lat)),
+            from_lon=_parse_float(_env("CAR_MORNING_FROM_LON", home_lon)),
+            to_lat=_parse_float(_env("CAR_MORNING_TO_LAT", WORK[1])),
+            to_lon=_parse_float(_env("CAR_MORNING_TO_LON", WORK[2])),
+            target_departure=_parse_time(_env("CAR_MORNING_TIME", "06:30")),
         ),
         CarRoute(
             label="Car Afternoon Offenburg->Freiburg",
-            from_name=os.getenv("CAR_AFTERNOON_FROM_NAME", "Offenburg Ebertplatz"),
-            to_name=os.getenv("CAR_AFTERNOON_TO_NAME", "Freiburg Egonstrasse"),
-            from_lat=_parse_float(os.getenv("CAR_AFTERNOON_FROM_LAT", "48.4730")),
-            from_lon=_parse_float(os.getenv("CAR_AFTERNOON_FROM_LON", "7.9468")),
-            to_lat=_parse_float(os.getenv("CAR_AFTERNOON_TO_LAT", "47.9996")),
-            to_lon=_parse_float(os.getenv("CAR_AFTERNOON_TO_LON", "7.8419")),
-            target_departure=_parse_time(os.getenv("CAR_AFTERNOON_TIME", "16:30")),
+            from_name=_env("CAR_AFTERNOON_FROM_NAME", WORK[0]),
+            to_name=_env("CAR_AFTERNOON_TO_NAME", home_name),
+            from_lat=_parse_float(_env("CAR_AFTERNOON_FROM_LAT", WORK[1])),
+            from_lon=_parse_float(_env("CAR_AFTERNOON_FROM_LON", WORK[2])),
+            to_lat=_parse_float(_env("CAR_AFTERNOON_TO_LAT", home_lat)),
+            to_lon=_parse_float(_env("CAR_AFTERNOON_TO_LON", home_lon)),
+            target_departure=_parse_time(_env("CAR_AFTERNOON_TIME", "16:30")),
         ),
     ]

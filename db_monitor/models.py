@@ -63,3 +63,6 @@ class CarObservation:
     target_departure_time: str
     duration_minutes: int
     distance_km: float
+    # "live": measured around the departure time with current traffic.
+    # "forecast": TomTom prediction (historic traffic) for a future departure.
+    source: str = "live"

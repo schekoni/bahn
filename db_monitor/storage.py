@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS car_observations (
     target_departure_time TEXT NOT NULL,
     duration_minutes INTEGER NOT NULL,
     distance_km REAL NOT NULL,
+    source TEXT NOT NULL DEFAULT 'live',
     UNIQUE(service_date, route_label, target_departure_time)
 );
 """
@@ -85,6 +86,12 @@ class ObservationStore:
         for column, column_type in REQUIRED_COLUMNS.items():
             if column not in existing:
                 con.execute(f"ALTER TABLE observations ADD COLUMN {column} {column_type}")
+        car_columns = {
+            row[1] for row in con.execute("PRAGMA table_info(car_observations)").fetchall()
+        }
+        if "source" not in car_columns:
+            # Every row stored before forecasts existed was a live measurement.
+            con.execute("ALTER TABLE car_observations ADD COLUMN source TEXT NOT NULL DEFAULT 'live'")
 
     def upsert_many(self, rows: list[Observation]) -> int:
         if not rows:
@@ -219,16 +226,24 @@ class ObservationStore:
                 """
                 INSERT INTO car_observations (
                     observation_ts, service_date, route_label, from_name, to_name,
-                    target_departure_time, duration_minutes, distance_km
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    target_departure_time, duration_minutes, distance_km, source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(service_date, route_label, target_departure_time)
                 DO UPDATE SET
                     observation_ts=excluded.observation_ts,
                     from_name=excluded.from_name,
                     to_name=excluded.to_name,
                     duration_minutes=excluded.duration_minutes,
-                    distance_km=excluded.distance_km
-                WHERE julianday(excluded.observation_ts) < julianday(car_observations.observation_ts)
+                    distance_km=excluded.distance_km,
+                    source=excluded.source
+                WHERE
+                    -- a live measurement always replaces a forecast
+                    (excluded.source = 'live' AND car_observations.source != 'live')
+                    -- a newer forecast replaces an older one
+                    OR (excluded.source = 'forecast' AND car_observations.source = 'forecast')
+                    -- of two live samples keep the earlier, closer to the commute time
+                    OR (excluded.source = 'live' AND car_observations.source = 'live'
+                        AND julianday(excluded.observation_ts) < julianday(car_observations.observation_ts))
                 """,
                 [
                     (
@@ -240,6 +255,7 @@ class ObservationStore:
                         row.target_departure_time,
                         row.duration_minutes,
                         row.distance_km,
+                        row.source,
                     )
                     for row in rows
                 ],
@@ -253,7 +269,7 @@ class ObservationStore:
                 """
                 SELECT route_label, target_departure_time
                 FROM car_observations
-                WHERE service_date = ?
+                WHERE service_date = ? AND source = 'live'
                 """,
                 (service_date,),
             ).fetchall()

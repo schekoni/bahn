@@ -45,6 +45,9 @@ jobs:
       MORNING_START: "06:00"
       MORNING_END: "08:00"
       CAR_MORNING_TIME: "06:30"
+      # Private home address for the car comparison (repository secrets).
+      CAR_HOME_LAT: ${{ secrets.CAR_HOME_LAT }}
+      CAR_HOME_LON: ${{ secrets.CAR_HOME_LON }}
       AFTERNOON_SOURCE_EVA: 8000290
       AFTERNOON_TARGET_EVA: 8000107
       AFTERNOON_START: "15:30"
