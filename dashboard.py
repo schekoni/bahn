@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import re
 import sqlite3
 from pathlib import Path
@@ -10,7 +11,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from db_monitor.config import load_settings
+import monthly_claim_report as claim_report
+from db_monitor.config import load_car_routes, load_settings
 
 
 ROUTE_ORDER = [
@@ -28,9 +30,6 @@ CAR_ROUTE_BY_TRAIN_ROUTE = {
     "Afternoon Offenburg->Freiburg": "Car Afternoon Offenburg->Freiburg",
 }
 
-SUMMARY_COLS = ["Trend", "Med.", "Ø", "Ausf."]
-
-CAR_DATA_MAX_AGE_DAYS = 7
 
 # Commute windows that matter for the dashboard. Collection runs wider
 # (see MORNING_START/END in the workflow) so the windows can change later.
@@ -44,15 +43,6 @@ PRIORITY_TRAINS = {
     "Afternoon Offenburg->Freiburg": ["ICE73", "ICE373", "RE5339"],
 }
 
-_LEGEND_HTML = """
-<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin:0;padding-top:.45rem">
-  <span style="background:#2e7d32;color:white;padding:2px 8px;border-radius:10px;font-size:.72em;font-weight:600">&lt;5</span>
-  <span style="background:#ef6c00;color:white;padding:2px 8px;border-radius:10px;font-size:.72em;font-weight:600">5–15</span>
-  <span style="background:#c62828;color:white;padding:2px 8px;border-radius:10px;font-size:.72em;font-weight:600">&gt;15</span>
-  <span style="background:#7b1fa2;color:white;padding:2px 8px;border-radius:10px;font-size:.72em;font-weight:600">Ausfall</span>
-  <span style="color:#607d8b;font-size:.7em;margin-left:4px">min · S=Abfahrt A=Ankunft</span>
-</div>
-"""
 
 
 def _clean_reason_text(value: object) -> str:
@@ -62,8 +52,21 @@ def _clean_reason_text(value: object) -> str:
     text = re.sub(r"\b(?:none|null|nan)\b", "", text, flags=re.IGNORECASE)
     text = text.replace("||", "|").strip(" |")
     parts = [p.strip() for p in text.split("|")]
-    cleaned = [p for p in parts if p and p.lower() not in {"none", "null", "nan", "-"}]
+    cleaned: list[str] = []
+    for part in parts:
+        # Messages from the old Timetables API carry type letters, message ids
+        # (r123...), validity timestamps and code numbers next to the text.
+        words = part.split()
+        if any(_REASON_CODE.fullmatch(w) for w in words):
+            words = [w for w in words if not _REASON_NOISE.fullmatch(w)]
+        readable = " ".join(words)
+        if readable and readable.lower() not in {"none", "null", "nan", "-"} and readable not in cleaned:
+            cleaned.append(readable)
     return " | ".join(cleaned)
+
+
+_REASON_CODE = re.compile(r"r\d{5,}|\d{10}")
+_REASON_NOISE = re.compile(r"[a-z]|r\d+|\d+")
 
 
 def _clean_label_text(value: object) -> str:
@@ -204,134 +207,176 @@ def load_car_data(db_path: str) -> pd.DataFrame:
         cols = {row[1] for row in con.execute("PRAGMA table_info(car_observations)").fetchall()}
         if not cols:
             return pd.DataFrame()
+        source_expr = "source" if "source" in cols else "'live'"
         df = pd.read_sql_query(
-            """
+            f"""
             SELECT
                 service_date,
                 route_label,
                 observation_ts,
                 target_departure_time,
                 duration_minutes,
-                distance_km
+                distance_km,
+                {source_expr} AS source
             FROM car_observations
             ORDER BY service_date DESC, route_label
             """,
             con,
-            parse_dates=["observation_ts"],
         )
     if df.empty:
         return df
+    df["observation_ts"] = _coerce_datetime_naive(df["observation_ts"])
     df["service_date"] = pd.to_datetime(df["service_date"]).dt.date
     return df
 
 
+# ---------------------------------------------------------------------------
+# Delay status scale, aligned with the passenger-rights thresholds used by the
+# monthly claim mail: from 20 min a case can be claimed, from 60 min it counts
+# in full. Colors: fixed status palette (validated in the dataviz reference),
+# always shown together with a text label, never color alone.
+# ---------------------------------------------------------------------------
+CLAIM_MINUTES = 20
+STATUS_ORDER = ["good", "warning", "serious", "critical"]
+STATUS_COLORS = {"good": "#0ca30c", "warning": "#fab219", "serious": "#ec835a", "critical": "#d03b3b"}
+STATUS_INK = {"good": "#1a1a19", "warning": "#1a1a19", "serious": "#1a1a19", "critical": "#ffffff"}
+STATUS_LABELS = {
+    "good": "pünktlich (<5 min)",
+    "warning": "5–19 min",
+    "serious": "20–59 min · reklamierbar",
+    "critical": "≥60 min oder Ausfall",
+}
+WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+MUTED = "color: rgba(128,128,128,0.9);"
+WEEKEND_EMPTY = "background-color: rgba(128,128,128,0.10);"
+
+PAGE_CSS = """
+<style>
+.block-container {padding-top: .6rem; padding-bottom: 1rem;}
+header[data-testid="stHeader"] {height: 0; visibility: hidden;}
+.bm-cards {display:flex; gap:12px; flex-wrap:wrap; margin:2px 0 10px;}
+.bm-card {flex:1 1 170px; max-width:250px; border:1px solid rgba(128,128,128,.28);
+          border-radius:10px; padding:9px 12px;}
+.bm-head {display:flex; justify-content:space-between; gap:8px; font-weight:600;}
+.bm-value {font-size:1.45rem; font-weight:700; line-height:1.25; margin:3px 0 1px;}
+.bm-muted {opacity:.65; font-size:.82rem;}
+.bm-status {font-size:.82rem; display:flex; align-items:center;}
+.bm-dot {display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; flex:none;}
+.bm-legend {display:flex; flex-direction:column; gap:4px; font-size:.85rem; margin:2px 0 6px;}
+</style>
+"""
+
+
+def _delay_status(minutes: object, canceled: bool = False) -> str | None:
+    if canceled:
+        return "critical"
+    if minutes is None or pd.isna(minutes):
+        return None
+    minutes = float(minutes)
+    if minutes < 5:
+        return "good"
+    if minutes < CLAIM_MINUTES:
+        return "warning"
+    if minutes < 60:
+        return "serious"
+    return "critical"
+
+
+def _status_chip(status: str, text: str | None = None) -> str:
+    label = html.escape(text or STATUS_LABELS[status])
+    return (
+        f'<span class="bm-status"><span class="bm-dot" style="background:{STATUS_COLORS[status]}"></span>'
+        f"{label}</span>"
+    )
+
+
+def _legend_html() -> str:
+    return '<div class="bm-legend">' + "".join(_status_chip(s) for s in STATUS_ORDER) + "</div>"
+
+
 def _build_car_commute_series(car_df: pd.DataFrame) -> pd.DataFrame:
+    """One car value per day and train route; a live sample wins over a forecast."""
+    columns = ["service_date", "route_label", "auto_minutes", "source"]
+    if car_df.empty:
+        return pd.DataFrame(columns=columns)
     rows: list[dict[str, object]] = []
     for train_route, car_route in CAR_ROUTE_BY_TRAIN_ROUTE.items():
         tmp = car_df[car_df["route_label"] == car_route].copy()
         if tmp.empty:
             continue
+        tmp["_live"] = tmp["source"].eq("live")
         for service_date, day in tmp.groupby("service_date"):
-            chosen = day.sort_values("observation_ts", ascending=False, kind="stable").iloc[0]
+            chosen = day.sort_values(["_live", "observation_ts"], ascending=False, kind="stable").iloc[0]
             rows.append(
                 {
                     "service_date": service_date,
                     "route_label": train_route,
                     "auto_minutes": int(chosen["duration_minutes"]),
+                    "source": chosen["source"],
                 }
             )
-    if not rows:
-        return pd.DataFrame(columns=["service_date", "route_label", "auto_minutes"])
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=columns)
 
 
-def _cell_value(row: pd.Series) -> str:
+def _weekday_mean(series: pd.DataFrame) -> float | None:
+    workdays = series[[d.weekday() < 5 for d in series["service_date"]]]
+    if workdays.empty:
+        return None
+    return float(workdays["auto_minutes"].mean())
+
+
+# ---------------------------------------------------------------------------
+# 30-day matrix
+# ---------------------------------------------------------------------------
+def _cell_value(row: pd.Series, detailed: bool = False) -> str:
     if bool(row["canceled"]):
         return "Ausfall"
-    dep_token = "-" if bool(row["effective_departure_unknown"]) else str(int(float(row["delay_minutes"])))
     if bool(row["arrival_observed"]):
         arr = int(float(row["arrival_delay_minutes"]))
+        if not detailed:
+            return f"+{arr}" if arr > 0 else "0"
+        dep = "-" if bool(row["effective_departure_unknown"]) else str(int(float(row["delay_minutes"])))
         actual_arrival = row.get("actual_arrival")
-        if pd.notna(actual_arrival):
-            arrival_time = pd.to_datetime(actual_arrival).strftime("%H:%M")
-            return f"S:{dep_token} A:{arr} ({arrival_time})"
-        return f"S:{dep_token} A:{arr}"
-    return f"S:{dep_token} A:-"
-
-
-def _delay_color(delay: float) -> str:
-    if delay < 5:
-        return "#2e7d32"
-    if delay <= 15:
-        return "#ef6c00"
-    return "#c62828"
+        arrival_time = f" ({pd.to_datetime(actual_arrival):%H:%M})" if pd.notna(actual_arrival) else ""
+        return f"S:{dep} A:{arr}{arrival_time}"
+    # Not yet arrived (today) vs. no arrival information (past day).
+    return "…" if bool(row.get("effective_arrival_open", False)) else "?"
 
 
 def _style_day_cell(value: object) -> str:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return ""
-    text = str(value)
+    text = "" if value is None or (isinstance(value, float) and pd.isna(value)) else str(value).strip()
     if not text:
         return ""
-    if "Ausfall" in text:
-        return "background-color: #7b1fa2; color: white; font-weight: 600;"
-    match = re.search(r"S:(-|\d+)\s+A:(-|\d+)", text)
-    if not match:
-        return ""
-    dep_token = match.group(1)
-    arr_token = match.group(2)
-    levels: list[int] = []
-    if re.fullmatch(r"\d+", dep_token):
-        levels.append(int(dep_token))
-    if re.fullmatch(r"\d+", arr_token):
-        levels.append(int(arr_token))
-    if not levels:
-        return ""
-    level = max(levels)
-    color = _delay_color(level)
-    text_color = "white" if color in {"#2e7d32", "#c62828"} else "black"
-    return f"background-color: {color}; color: {text_color}; font-weight: 600;"
+    if text == "Ausfall":
+        status = "critical"
+    else:
+        match = re.search(r"A:(\d+)", text) or re.fullmatch(r"\+?(\d+)", text)
+        if not match:
+            return MUTED
+        status = _delay_status(int(match.group(1)))
+    return (
+        f"background-color: {STATUS_COLORS[status]}; color: {STATUS_INK[status]}; "
+        "font-weight: 600; text-align: center;"
+    )
 
 
 def _style_weekend_day_cell(value: object) -> str:
-    base = _style_day_cell(value)
-    border = "border-left: 3px solid #90a4ae;"
-    return f"{base} {border}" if base else f"background-color: #f0f4f8; {border}"
+    return _style_day_cell(value) or WEEKEND_EMPTY
 
 
-def _style_trend_cell(value: object) -> str:
-    text = str(value or "")
-    if text == "↓":
-        return "color: #2e7d32; font-weight: 700;"
-    if text == "↑":
-        return "color: #c62828; font-weight: 700;"
-    return "color: #90a4ae; font-weight: 600;"
+def _style_avg_cell(value: object) -> str:
+    text = str(value or "").strip()
+    if not text.lstrip("+").isdigit():
+        return MUTED
+    status = _delay_status(int(text.lstrip("+")))
+    return f"background-color: {STATUS_COLORS[status]}; color: {STATUS_INK[status]}; font-weight: 600;"
 
 
-def _style_metric_cell(value: object) -> str:
-    text = str(value or "")
-    if text in {"-", ""}:
-        return "color: #90a4ae;"
-    try:
-        v = int(text)
-    except ValueError:
-        return ""
-    color = _delay_color(v)
-    text_color = "white" if color in {"#2e7d32", "#c62828"} else "black"
-    return f"background-color: {color}; color: {text_color}; font-weight: 600;"
+def _style_claim_cell(value: object) -> str:
+    return "font-weight: 700;" if str(value or "0").strip() not in {"0", ""} else MUTED
 
 
-def _style_ausfall_count_cell(value: object) -> str:
-    text = str(value or "")
-    try:
-        v = int(text)
-    except ValueError:
-        return ""
-    if v == 0:
-        return "color: #90a4ae;"
-    if v <= 2:
-        return "color: #ef6c00; font-weight: 600;"
-    return "background-color: #7b1fa2; color: white; font-weight: 600;"
+STAT_COLS = ["Pünktl.", "Ø", "Reklam."]
 
 
 def style_matrix(
@@ -340,155 +385,66 @@ def style_matrix(
     weekend_cols: list[str] | None = None,
 ) -> pd.io.formats.style.Styler:
     styler = matrix.style
-    wknd = set(weekend_cols or [])
-    non_wknd_day = [c for c in day_cols if c not in wknd and c in matrix.columns]
-    wknd_day = [c for c in day_cols if c in wknd and c in matrix.columns]
-
-    if non_wknd_day:
-        styler = styler.map(_style_day_cell, subset=non_wknd_day)
-    for wknd_col in wknd_day:
-        styler = styler.map(_style_weekend_day_cell, subset=[wknd_col])
-
-    if "Trend" in matrix.columns:
-        styler = styler.map(_style_trend_cell, subset=["Trend"])
-    if "Med." in matrix.columns:
-        styler = styler.map(_style_metric_cell, subset=["Med."])
+    weekend = set(weekend_cols or [])
+    weekday_cols = [c for c in day_cols if c not in weekend and c in matrix.columns]
+    weekend_day_cols = [c for c in day_cols if c in weekend and c in matrix.columns]
+    if weekday_cols:
+        styler = styler.map(_style_day_cell, subset=weekday_cols)
+    if weekend_day_cols:
+        styler = styler.map(_style_weekend_day_cell, subset=weekend_day_cols)
     if "Ø" in matrix.columns:
-        styler = styler.map(_style_metric_cell, subset=["Ø"])
-    if "Ausf." in matrix.columns:
-        styler = styler.map(_style_ausfall_count_cell, subset=["Ausf."])
-
+        styler = styler.map(_style_avg_cell, subset=["Ø"])
+    if "Reklam." in matrix.columns:
+        styler = styler.map(_style_claim_cell, subset=["Reklam."])
     return styler
 
 
 def build_route_matrix(
-    df: pd.DataFrame, route_label: str, end_date: date, days: int = 30
+    df: pd.DataFrame, route_label: str, end_date: date, days: int = 30, detailed: bool = False
 ) -> tuple[pd.DataFrame, list[str], list[str]]:
-    route_df = df[df["route_label"] == route_label].copy()
-    if route_df.empty:
-        return route_df, [], []
-
+    route_df = df[df["route_label"] == route_label]
     start_date = end_date - timedelta(days=days - 1)
-    route_30 = route_df[(route_df["service_date"] >= start_date) & (route_df["service_date"] <= end_date)].copy()
-    if route_30.empty:
-        return route_30, [], []
-    prev_end = start_date - timedelta(days=1)
-    prev_start = prev_end - timedelta(days=days - 1)
-    route_prev = route_df[(route_df["service_date"] >= prev_start) & (route_df["service_date"] <= prev_end)].copy()
+    window = route_df[
+        (route_df["service_date"] >= start_date) & (route_df["service_date"] <= end_date)
+    ].copy()
+    if window.empty:
+        return pd.DataFrame(), [], []
 
-    route_30["day_cell"] = route_30.apply(_cell_value, axis=1)
-    route_30["display_ausfall"] = route_30["canceled"]
+    window["day_cell"] = window.apply(_cell_value, axis=1, detailed=detailed)
+    pivot = window.pivot_table(index="zug", columns="service_date", values="day_cell", aggfunc="first")
+    pivot = pivot.reindex(columns=sorted(pivot.columns, reverse=True))
 
-    pivot = (
-        route_30.pivot_table(index="zug", columns="service_date", values="day_cell", aggfunc="first")
-        .sort_index(axis=1, ascending=False)
-        .reset_index()
-        .rename(columns={"zug": "Zug"})
-    )
+    observed = window["arrival_observed"] & ~window["canceled"]
+    arrivals = window[observed]
+    # A cancellation counts as "not on time", consistent with the reliability chart.
+    judged = window[observed | window["canceled"]]
+    on_time = judged["arrival_observed"] & ~judged["canceled"] & (judged["arrival_delay_minutes"] < 5)
+    on_time_pct = on_time.groupby(judged["zug"]).mean() * 100
+    avg_delay = arrivals.groupby("zug")["arrival_delay_minutes"].mean()
+    claimable = window["canceled"] | (observed & (window["arrival_delay_minutes"] >= CLAIM_MINUTES))
+    claim_days = window[claimable].groupby("zug")["service_date"].nunique()
 
-    metric_base = route_30.copy()
-    metric_base.loc[metric_base["display_ausfall"], ["delay_minutes", "arrival_delay_minutes"]] = pd.NA
-    metric_base.loc[~metric_base["arrival_observed"], ["arrival_delay_minutes"]] = pd.NA
+    stats = pd.DataFrame(index=pivot.index)
+    stats["Pünktl."] = [
+        f"{on_time_pct[z]:.0f} %" if z in on_time_pct.index else "–" for z in stats.index
+    ]
+    stats["Ø"] = [f"{avg_delay[z]:.0f}" if z in avg_delay.index else "–" for z in stats.index]
+    stats["Reklam."] = [str(int(claim_days.get(z, 0))) for z in stats.index]
 
-    avg_arr_raw = metric_base.groupby("zug", dropna=False)["arrival_delay_minutes"].mean()
-    avg_arr = avg_arr_raw.apply(lambda x: int(float(x)) if pd.notna(x) else pd.NA)
-    median_arr = metric_base.groupby("zug", dropna=False)["arrival_delay_minutes"].median().apply(
-        lambda x: int(float(x)) if pd.notna(x) else pd.NA
-    )
-    cancel_days = (
-        route_30[route_30["display_ausfall"]]
-        .groupby("zug", dropna=False)["service_date"]
-        .nunique()
-        .rename("ausfalltage")
-    )
-
-    prev_avg_arr_raw = pd.Series(dtype="float64")
-    if not route_prev.empty:
-        prev_metric_base = route_prev.copy()
-        prev_metric_base["display_ausfall"] = prev_metric_base["canceled"]
-        prev_metric_base.loc[prev_metric_base["display_ausfall"], ["delay_minutes", "arrival_delay_minutes"]] = pd.NA
-        prev_metric_base.loc[~prev_metric_base["arrival_observed"], ["arrival_delay_minutes"]] = pd.NA
-        prev_avg_arr_raw = prev_metric_base.groupby("zug", dropna=False)["arrival_delay_minutes"].mean()
-
-    summary = pd.DataFrame(
-        {
-            "Zug": avg_arr.index,
-            "avg_arr_raw": avg_arr_raw.values,
-            "avg_arr": avg_arr.values,
-            "median_arr": median_arr.values,
-        }
-    )
-    summary = summary.merge(cancel_days.reset_index().rename(columns={"zug": "Zug"}), on="Zug", how="left")
-    summary = summary.merge(
-        prev_avg_arr_raw.rename("prev_avg_arr_raw").reset_index().rename(columns={"zug": "Zug"}),
-        on="Zug",
-        how="left",
-    )
-    summary["ausfalltage"] = summary["ausfalltage"].fillna(0).astype(int)
-
-    def _trend_symbol(row: pd.Series) -> str:
-        cur = row["avg_arr_raw"]
-        prev = row["prev_avg_arr_raw"]
-        if pd.isna(cur) or pd.isna(prev):
-            return "→"
-        diff = float(cur) - float(prev)
-        if abs(diff) < 0.5:
-            return "→"
-        return "↓" if diff < 0 else "↑"
-
-    summary["Trend"] = summary.apply(_trend_symbol, axis=1)
-    summary["Med."] = summary["median_arr"].apply(lambda x: "-" if pd.isna(x) else str(int(float(x))))
-    summary["Ø"] = summary["avg_arr"].apply(lambda x: "-" if pd.isna(x) else str(int(float(x))))
-    summary["Ausf."] = summary["ausfalltage"].astype(str)
-    summary = summary[["Zug", "Trend", "Med.", "Ø", "Ausf."]]
-
-    result = pivot.merge(summary, on="Zug", how="left")
-
-    meta = (
-        route_30.groupby("zug", as_index=False)
-        .agg(departure_hhmm=("typical_hhmm", "first"))
-        .rename(columns={"zug": "Zug"})
-    )
-    result = result.merge(meta, on="Zug", how="left")
-    result = result.sort_values(by=["departure_hhmm", "Zug"], kind="stable")
-
-    rename_map: dict[object, str] = {}
     day_cols: list[str] = []
     weekend_cols: list[str] = []
-    for col in result.columns:
-        if isinstance(col, date):
-            label = col.strftime("%d.%m")
-            rename_map[col] = label
-            day_cols.append(label)
-            if col.weekday() >= 5:
-                weekend_cols.append(label)
-    result = result.rename(columns=rename_map)
+    rename: dict[object, str] = {}
+    for day in pivot.columns:
+        label = f"{WEEKDAYS[day.weekday()]} {day:%d.%m}"
+        rename[day] = label
+        day_cols.append(label)
+        if day.weekday() >= 5:
+            weekend_cols.append(label)
 
-    for col in day_cols:
-        if col not in result.columns:
-            continue
-        result[col] = (
-            result[col]
-            .astype("string")
-            .str.replace(r"(?i)\b(?:none|null|nan)\b", "", regex=True)
-            .str.strip()
-            .replace({"": pd.NA, "-": pd.NA})
-            .fillna("")
-        )
-
-    if day_cols and "Ausf." in result.columns:
-        result["Ausf."] = (result[day_cols] == "Ausfall").sum(axis=1).astype(int).astype(str)
-
-    if day_cols:
-        ran_mask = ~(result[day_cols] == "Ausfall").all(axis=1)
-        result = result[ran_mask].copy()
-
-    result = result.drop(columns=["departure_hhmm"])
-
-    stat_cols_present = [c for c in SUMMARY_COLS if c in result.columns]
-    day_only_cols = [c for c in result.columns if c not in stat_cols_present and c != "Zug"]
-    ordered_cols = ["Zug"] + day_only_cols + stat_cols_present
-    return result[ordered_cols], day_cols, weekend_cols
+    order = window.groupby("zug")["typical_hhmm"].first().sort_values(kind="stable")
+    matrix = stats.join(pivot.rename(columns=rename)).loc[order.index].fillna("")
+    matrix.index.name = "Zug"
+    return matrix.reset_index(), day_cols, weekend_cols
 
 
 def _build_train_history(train_df: pd.DataFrame) -> pd.DataFrame:
@@ -543,78 +499,302 @@ def _reason_stats(train_df: pd.DataFrame) -> pd.DataFrame:
     return result.drop(columns=["avg_delay"])
 
 
-def render_car_summary(car_df: pd.DataFrame) -> None:
-    st.subheader("Auto-Fahrtdauer (Pendelzeiten)")
-    if car_df.empty:
-        st.info("Auto-Daten noch nicht verfügbar. Setze je nach Provider `TOMTOM_API_KEY` oder `ORS_API_KEY`.")
-        return
-
-    car_series = _build_car_commute_series(car_df)
-    if car_series.empty:
-        st.info("Noch keine Auto-Daten vorhanden.")
-        return
-
-    car_series["route_name"] = car_series["route_label"].map(ROUTE_TITLES).fillna(car_series["route_label"])
-    car_series = car_series.sort_values(["service_date", "route_name"])
-
-    latest_date = car_series["service_date"].max()
-    latest = car_series[car_series["service_date"] == latest_date]
-    latest_obs_ts = pd.to_datetime(car_df["observation_ts"], errors="coerce").max()
-    avg_by_route = (
-        car_series.groupby("route_name", as_index=False)["auto_minutes"]
-        .mean()
-        .rename(columns={"auto_minutes": "avg_auto_minutes"})
+# ---------------------------------------------------------------------------
+# "Heute" cards
+# ---------------------------------------------------------------------------
+def _train_card(row: pd.Series) -> str:
+    name = html.escape(str(row["train_key"]))
+    planned = f"{row['planned_departure']:%H:%M}" if pd.notna(row["planned_departure"]) else ""
+    planned_arr = row.get("planned_arrival")
+    actual_arr = row.get("actual_arrival")
+    if bool(row["canceled"]):
+        value, status, chip_text = "Ausfall", "critical", "Ausfall"
+        detail = html.escape(str(row.get("arrival_reason") or row.get("departure_reason") or ""))[:60]
+    elif bool(row["arrival_observed"]):
+        delay = int(float(row["arrival_delay_minutes"]))
+        status = _delay_status(delay)
+        value = "pünktlich" if delay <= 0 else f"+{delay} min"
+        chip_text = STATUS_LABELS[status]
+        detail = (
+            f"an {actual_arr:%H:%M} statt {planned_arr:%H:%M}"
+            if pd.notna(actual_arr) and pd.notna(planned_arr) else ""
+        )
+    elif bool(row.get("effective_arrival_open", False)):
+        value, status, chip_text = "unterwegs", None, "noch nicht angekommen"
+        detail = f"Ankunft plan {planned_arr:%H:%M}" if pd.notna(planned_arr) else ""
+    else:
+        value, status, chip_text = "keine Info", None, "Ankunft nicht erfasst"
+        detail = ""
+    chip = (
+        _status_chip(status, chip_text) if status
+        else f'<span class="bm-status bm-muted">{html.escape(chip_text)}</span>'
     )
-    if pd.notna(latest_obs_ts):
-        st.caption(f"Letzter Auto-Messpunkt: {latest_obs_ts.strftime('%d.%m.%Y %H:%M')}")
+    return (
+        f'<div class="bm-card"><div class="bm-head"><span>{name}</span>'
+        f'<span class="bm-muted">ab {planned}</span></div>'
+        f'<div class="bm-value">{html.escape(value)}</div>{chip}'
+        f'<div class="bm-muted">{detail}</div></div>'
+    )
+
+
+def _car_card(car_df: pd.DataFrame, route_label: str, day: date, train_minutes: tuple[str, int] | None) -> str:
+    series = _build_car_commute_series(car_df)
+    series = series[series["route_label"] == route_label]
+    if series.empty:
+        return ""
+    today_row = series[series["service_date"] == day]
+    typical = _weekday_mean(series)
+    car_route = next(r for r in load_car_routes() if r.label == CAR_ROUTE_BY_TRAIN_ROUTE[route_label])
+    head = f'<div class="bm-head"><span>🚗 Auto</span><span class="bm-muted">ab {car_route.target_departure:%H:%M}</span></div>'
+    if today_row.empty:
+        if typical is None:
+            return ""
+        body = f'<div class="bm-value">Ø {typical:.0f} min</div><div class="bm-muted">Werktage, kein Wert für diesen Tag</div>'
     else:
-        st.caption(f"Letzter Auto-Messpunkt: {latest_date}")
-    c1, c2 = st.columns(2)
-    for col, label in ((c1, "Freiburg → Offenburg"), (c2, "Offenburg → Freiburg")):
-        row_today = latest[latest["route_name"] == label]
-        row_avg = avg_by_route[avg_by_route["route_name"] == label]
-        if row_avg.empty:
-            col.metric(label, "k.A.")
+        minutes = int(today_row.iloc[0]["auto_minutes"])
+        kind = "Live-Messung" if today_row.iloc[0]["source"] == "live" else "Prognose (Pendelverkehr)"
+        body = f'<div class="bm-value">{minutes} min</div><div class="bm-muted">{kind}</div>'
+        if train_minutes:
+            train_name, total = train_minutes
+            diff = total - minutes
+            verdict = f"Auto {abs(diff)} min schneller" if diff > 0 else f"Zug {abs(diff)} min schneller" if diff < 0 else "gleich schnell"
+            body += f'<div class="bm-muted">{html.escape(train_name)}: {total} min · {verdict}</div>'
+    return f'<div class="bm-card">{head}{body}</div>'
+
+
+def render_today(df: pd.DataFrame, car_df: pd.DataFrame, route_label: str, timezone: str) -> None:
+    route_df = df[df["route_label"] == route_label]
+    if route_df.empty:
+        return
+    today = datetime.now(ZoneInfo(timezone)).date()
+    day = today if (route_df["service_date"] == today).any() else route_df["service_date"].max()
+    day_df = route_df[route_df["service_date"] == day].sort_values("planned_departure")
+    priority = PRIORITY_TRAINS.get(route_label, [])
+    shown = day_df[day_df["train_key"].isin(priority)]
+    if shown.empty:
+        shown = day_df.head(3)
+
+    train_minutes = None
+    for _, row in shown.iterrows():
+        if bool(row["arrival_observed"]) and not bool(row["canceled"]) and pd.notna(row["planned_arrival"]):
+            planned_trip = (row["planned_arrival"] - row["planned_departure"]).total_seconds() / 60
+            train_minutes = (str(row["train_key"]), int(round(planned_trip + float(row["arrival_delay_minutes"]))))
+            break
+
+    title = "Heute" if day == today else f"Zuletzt erfasst: {WEEKDAYS[day.weekday()]} {day:%d.%m.}"
+    st.markdown(f"**{title}**")
+    cards = "".join(_train_card(row) for _, row in shown.iterrows())
+    cards += _car_card(car_df, route_label, day, train_minutes)
+    st.markdown(f'<div class="bm-cards">{cards}</div>', unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------------------
+# Reliability per train (last 30 days)
+# ---------------------------------------------------------------------------
+def render_reliability(df: pd.DataFrame, route_label: str, end_date: date, days: int = 30) -> None:
+    start_date = end_date - timedelta(days=days - 1)
+    window = df[
+        (df["route_label"] == route_label)
+        & (df["service_date"] >= start_date)
+        & (df["service_date"] <= end_date)
+    ].copy()
+    window["status"] = [
+        _delay_status(delay if observed else None, canceled)
+        for delay, observed, canceled in zip(
+            window["arrival_delay_minutes"], window["arrival_observed"], window["canceled"]
+        )
+    ]
+    window = window[window["status"].notna()]
+    if window.empty:
+        return
+
+    counts = window.groupby(["zug", "status"]).size().unstack(fill_value=0)
+    counts = counts.reindex(columns=STATUS_ORDER, fill_value=0)
+    totals = counts.sum(axis=1)
+    order = window.groupby("zug")["typical_hhmm"].first().sort_values(ascending=False, kind="stable")
+    counts, totals = counts.loc[order.index], totals.loc[order.index]
+    shares = counts.div(totals, axis=0) * 100
+    # Show the sample size: "100 %" from two weekend days must not look like a fact.
+    labels = [f"{zug}  ({int(n)} T.)" for zug, n in totals.items()]
+    shares.index = labels
+
+    fig = go.Figure()
+    for status in STATUS_ORDER:
+        fig.add_trace(
+            go.Bar(
+                y=shares.index,
+                x=shares[status],
+                orientation="h",
+                name=STATUS_LABELS[status],
+                marker=dict(color=STATUS_COLORS[status], line=dict(width=0)),
+                text=[f"{v:.0f} %" if v >= 12 else "" for v in shares[status]],
+                textposition="inside",
+                insidetextanchor="start",
+                textfont=dict(color=STATUS_INK[status], size=12),
+                customdata=list(zip(counts[status], totals)),
+                hovertemplate="<b>%{y}</b><br>" + STATUS_LABELS[status]
+                + ": %{customdata[0]} von %{customdata[1]} Tagen (%{x:.0f} %)<extra></extra>",
+            )
+        )
+    fig.update_layout(
+        barmode="stack",
+        bargap=0.35,
+        height=70 + 34 * len(shares),
+        margin=dict(l=10, r=10, t=36, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="left", x=0, title=None,
+                    traceorder="normal"),
+        xaxis=dict(range=[0, 100], ticksuffix=" %", showgrid=True, gridcolor="rgba(128,128,128,0.18)"),
+        yaxis=dict(title=None),
+        hoverlabel=dict(namelength=0),
+    )
+    st.plotly_chart(fig, use_container_width=True, key=f"reliability-{route_label}")
+
+
+# ---------------------------------------------------------------------------
+# Claims tab: same selection as the monthly claim mail
+# ---------------------------------------------------------------------------
+def render_claims(db_path: str, end_date: date) -> None:
+    month_start = end_date.replace(day=1)
+    months = [month_start]
+    for _ in range(5):
+        months.append((months[-1] - timedelta(days=1)).replace(day=1))
+    chosen = st.selectbox(
+        "Monat", months, format_func=lambda d: f"{d:%m/%Y}", key="claims-month"
+    )
+    month_end = (chosen.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    cases, available_from, available_through = claim_report.read_month(Path(db_path), chosen, month_end)
+
+    full = [c for c in cases if c.delay_minutes is not None and c.delay_minutes >= 60]
+    partial = [c for c in cases if c.delay_minutes is not None and 20 <= c.delay_minutes < 60]
+    canceled = [c for c in cases if c.canceled]
+    estimate = claim_report.estimate_compensation(cases)
+    running = chosen == month_start and end_date >= date.today() - timedelta(days=1)
+
+    c0, c1, c2, c3 = st.columns([1.4, 1, 1, 1])
+    c0.metric(
+        "Bisher angelaufen" if running else "Erstattung (Schätzung)",
+        claim_report.format_eur(estimate.payable),
+        help=(
+            f"{estimate.full_cases} × ab 60 min à {claim_report.format_eur(estimate.rate)} + "
+            f"{estimate.collected_minutes} gesammelte Minuten aus Fällen ab 20 min "
+            f"(≈ {estimate.collected_units} × {claim_report.format_eur(estimate.rate)}). "
+            "Ausfälle sind nicht eingerechnet."
+        ),
+    )
+    c1.metric("≥60 min", len(full))
+    c2.metric("20–59 min", len(partial), help=f"Zusammen {estimate.collected_minutes} Minuten Verspätung.")
+    c3.metric("Ausfälle (prüfen)", len(canceled))
+
+    if not cases:
+        st.info("Keine reklamierbaren Fälle in diesem Monat erfasst.")
+    else:
+        routes = {
+            "Morning Freiburg->Offenburg": "Freiburg → Offenburg",
+            "Afternoon Offenburg->Freiburg": "Offenburg → Freiburg",
+        }
+        table = pd.DataFrame(
+            [
+                {
+                    "Datum": _day_label(date.fromisoformat(c.service_date)),
+                    "Zug": c.train_name,
+                    "Strecke": routes.get(c.route_label, c.route_label),
+                    "Ab (plan)": _hhmm(c.planned_departure),
+                    "An (plan)": _hhmm(c.planned_arrival),
+                    "An (ist)": _hhmm(c.actual_arrival),
+                    "Verspätung": "Ausfall" if c.canceled else f"+{c.delay_minutes} min",
+                }
+                for c in cases
+            ]
+        )
+        st.dataframe(
+            table.style.map(_style_claim_delay, subset=["Verspätung"]),
+            use_container_width=True,
+            hide_index=True,
+            height=38 + 35 * len(table),
+        )
+    trains = ", ".join(sorted({train for _, train in claim_report.TRAIN_FILTERS}))
+    cap_note = (
+        f" Obergrenze 25 % des Zeitkartenwerts: {claim_report.format_eur(estimate.cap)}."
+        if estimate.cap is not None else ""
+    )
+    st.caption(
+        f"Gleiche Auswahl wie die Monatsmail ({trains}; pro Strecke und Tag nur der am stärksten "
+        "verspätete Zug). Die Mail geht am 1. des Folgemonats um 08:00 raus. "
+        f"Schätzung für {estimate.tariff_label}: Pauschale je Fall ab 60 min; Fälle ab 20 min "
+        f"werden gesammelt, je 60 gesammelte Minuten eine Pauschale (Auslegung, von der DB nicht "
+        f"genau festgelegt).{cap_note} Datenbestand: {available_from or '–'} bis {available_through or '–'}."
+    )
+
+    st.markdown("**Letzte Monate**")
+    history = []
+    for month in months:
+        m_end = (month.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+        m_cases, _, _ = claim_report.read_month(Path(db_path), month, m_end)
+        m_est = claim_report.estimate_compensation(m_cases)
+        history.append(
+            {
+                "Monat": f"{month:%m/%Y}",
+                "≥60 min": m_est.full_cases,
+                "20–59 min": sum(
+                    1 for c in m_cases
+                    if not c.canceled and c.delay_minutes is not None and 20 <= c.delay_minutes < 60
+                ),
+                "Ausfälle": m_est.canceled_open,
+                "Erstattung (Schätzung)": claim_report.format_eur(m_est.payable),
+            }
+        )
+    st.dataframe(pd.DataFrame(history), use_container_width=True, hide_index=True)
+
+
+def _day_label(day: date) -> str:
+    return f"{WEEKDAYS[day.weekday()]} {day:%d.%m.}"
+
+
+def _hhmm(raw: str | None) -> str:
+    if not raw:
+        return "–"
+    try:
+        return datetime.fromisoformat(raw).strftime("%H:%M")
+    except ValueError:
+        return "–"
+
+
+def _style_claim_delay(value: object) -> str:
+    text = str(value or "")
+    if text == "Ausfall":
+        return _style_day_cell("Ausfall")
+    match = re.search(r"\+(\d+)", text)
+    return _style_day_cell(match.group(1)) if match else ""
+
+
+# ---------------------------------------------------------------------------
+# System tab
+# ---------------------------------------------------------------------------
+def render_car_summary(car_df: pd.DataFrame) -> None:
+    st.subheader("Auto-Fahrzeit (Pendelzeiten)")
+    series = _build_car_commute_series(car_df)
+    if series.empty:
+        st.info("Noch keine Auto-Daten. `TOMTOM_API_KEY` setzen.")
+        return
+    cols = st.columns(len(ROUTE_ORDER))
+    for col, route_label in zip(cols, ROUTE_ORDER):
+        route_series = series[series["route_label"] == route_label]
+        typical = _weekday_mean(route_series)
+        if route_series.empty or typical is None:
+            col.metric(ROUTE_TITLES[route_label], "k.A.")
             continue
-        avg_val = int(round(float(row_avg.iloc[0]["avg_auto_minutes"])))
-        if row_today.empty:
-            col.metric(label, f"Ø {avg_val} min")
-        else:
-            today_val = int(row_today.iloc[0]["auto_minutes"])
-            col.metric(label, f"Ø {avg_val} min", f"Heute: {today_val} min")
-
-
-def _render_route_car_metric(car_df: pd.DataFrame, route_label: str) -> None:
-    car_series = _build_car_commute_series(car_df)
-    if car_series.empty:
-        return
-    route_series = car_series[car_series["route_label"] == route_label]
-    if route_series.empty:
-        return
-
-    latest_date = route_series["service_date"].max()
-    latest_row = route_series[route_series["service_date"] == latest_date]
-    avg_val = int(round(float(route_series["auto_minutes"].mean())))
-
-    age_days = (date.today() - latest_date).days if isinstance(latest_date, date) else 0
-    if age_days > CAR_DATA_MAX_AGE_DAYS:
-        st.caption(
-            f"🚗 Keine aktuellen Auto-Daten (letzte Messung {latest_date:%d.%m.%Y}, Ø {avg_val} min)."
+        latest = route_series.sort_values("service_date").iloc[-1]
+        kind = "live" if latest["source"] == "live" else "Prognose"
+        col.metric(
+            ROUTE_TITLES[route_label],
+            f"Ø {typical:.0f} min",
+            f"{latest['service_date']:%d.%m.}: {latest['auto_minutes']} min ({kind})",
+            delta_color="off",
         )
-        return
-
-    if not latest_row.empty:
-        today_val = int(latest_row.iloc[0]["auto_minutes"])
-        delta = today_val - avg_val
-        date_label = latest_date.strftime("%d.%m") if hasattr(latest_date, "strftime") else str(latest_date)
-        st.metric(
-            f"🚗 Auto ({date_label})",
-            f"{today_val} min",
-            delta=f"{delta:+d} min ggü. Ø {avg_val}",
-            delta_color="inverse",
-        )
-    else:
-        st.metric("🚗 Auto", f"Ø {avg_val} min")
+    st.caption(
+        "Ø über Werktage. Läuft die Datensammlung zur Pendelzeit, wird live gemessen, "
+        "sonst die TomTom-Prognose für genau diese Abfahrtszeit gespeichert."
+    )
 
 
 def render_combined_train_chart(df: pd.DataFrame, route_label: str, timezone: str) -> None:
@@ -710,12 +890,17 @@ def render_combined_train_chart(df: pd.DataFrame, route_label: str, timezone: st
     )
     st.plotly_chart(fig, use_container_width=True, key=f"combined-chart-{route_label}")
 
+    reason_tables = []
     for train in selected_trains:
-        train_df = route_df[route_df["zug"] == train]
-        reason_stats = _reason_stats(train_df)
+        reason_stats = _reason_stats(route_df[route_df["zug"] == train])
         if not reason_stats.empty:
-            with st.expander(f"Verspätungsgründe: {train}"):
-                st.dataframe(reason_stats, use_container_width=True, hide_index=True)
+            reason_tables.append(reason_stats.assign(Zug=train))
+    st.markdown("**Verspätungsgründe** (laut DB)")
+    if reason_tables:
+        reasons = pd.concat(reason_tables)[["Zug", "Bereich", "Grund", "Anzahl", "Ø Verspätung"]]
+        st.dataframe(reasons, use_container_width=True, hide_index=True)
+    else:
+        st.caption("Keine Gründe gemeldet.")
 
 
 def _filter_display_windows(df: pd.DataFrame) -> pd.DataFrame:
@@ -748,15 +933,7 @@ def main() -> None:
         layout="wide",
         initial_sidebar_state="collapsed",
     )
-    st.markdown(
-        """
-        <style>
-        .block-container {padding-top: .6rem; padding-bottom: 1rem;}
-        header[data-testid="stHeader"] {height: 0; visibility: hidden;}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(PAGE_CSS, unsafe_allow_html=True)
 
     settings = load_settings()
     db_file = Path(settings.database_path)
@@ -780,62 +957,66 @@ def main() -> None:
     with st.sidebar:
         st.markdown("### 🚆 DB Pünktlichkeitsmonitor")
         end_date = st.date_input("Berichts-Enddatum", value=max_date)
-        st.markdown("**Farbcode (Minuten Verspätung)**")
-        st.markdown(_LEGEND_HTML, unsafe_allow_html=True)
-        st.caption("S = Abfahrt · A = Ankunft")
         show_all_trains = st.toggle(
             "Alle erfassten Züge anzeigen",
             value=False,
             help="Standard: nur Pendelfenster 06:30–07:30 (morgens) und 15:30–17:30 (abends).",
         )
+        detailed = st.toggle(
+            "Details in der Tabelle",
+            value=False,
+            help="Zusätzlich Abfahrtsverspätung (S) und tatsächliche Ankunftszeit zeigen.",
+        )
+        st.markdown("**Ankunftsverspätung**")
+        st.markdown(_legend_html(), unsafe_allow_html=True)
+        st.caption("… unterwegs · ? keine Ankunft erfasst · leer = keine Daten")
 
     full_df = df
     if not show_all_trains:
         df = _filter_display_windows(df)
 
-    route_payloads: list[tuple[str, pd.DataFrame, list[str], list[str]]] = []
-    for route_label in ROUTE_ORDER:
-        matrix, day_cols, weekend_cols = build_route_matrix(
-            df, route_label=route_label, end_date=end_date, days=30
-        )
-        route_payloads.append((route_label, matrix, day_cols, weekend_cols))
+    tab_morning, tab_evening, tab_claims, tab_system = st.tabs(
+        ["🌅 Morgen", "🌆 Abend", "💶 Erstattung", "⚙️ System"]
+    )
 
-    tab_morgen, tab_abend, tab_system = st.tabs(["🌅 Morgen", "🌆 Abend", "⚙️ System"])
-
-    for (route_label, matrix, day_cols, weekend_cols), tab in zip(route_payloads, [tab_morgen, tab_abend]):
+    for route_label, tab in zip(ROUTE_ORDER, [tab_morning, tab_evening]):
         with tab:
             _render_data_freshness(full_df, route_label, settings.timezone)
+            render_today(df, car_df, route_label, settings.timezone)
+
+            matrix, day_cols, weekend_cols = build_route_matrix(
+                df, route_label=route_label, end_date=end_date, days=30, detailed=detailed
+            )
             if matrix.empty:
                 st.write("Keine Daten für die letzten 30 Tage vorhanden.")
                 continue
-
-            if not car_df.empty:
-                car_col, _ = st.columns([0.35, 0.65])
-                with car_col:
-                    _render_route_car_metric(car_df, route_label)
-
+            st.markdown("**Letzte 30 Tage** · Ankunftsverspätung in Minuten")
             matrix_display = matrix.set_index("Zug")
-            stat_cols = [c for c in ["Ø", "Med.", "Ausf.", "Trend"] if c in matrix_display.columns]
-            day_view_cols = [c for c in matrix_display.columns if c not in stat_cols]
-            matrix_display = matrix_display[stat_cols + day_view_cols]
-
             st.dataframe(
                 style_matrix(matrix_display, day_cols, weekend_cols),
                 use_container_width=True,
-                hide_index=False,
                 height=min(38 + 35 * len(matrix_display), 600),
             )
-            st.caption("Ø / Med. = Ankunftsverspätung (Min.) der letzten 30 Tage · Ausf. = Ausfalltage · Trend ggü. Vormonat")
+            st.caption(
+                "Pünktl. = Anteil der Ankünfte unter 5 min · Ø = mittlere Ankunftsverspätung · "
+                "Reklam. = Tage mit ≥20 min Verspätung oder Ausfall"
+            )
 
-            st.markdown("**Ankunfts-Verspätung je Zug**")
-            render_combined_train_chart(df, route_label, settings.timezone)
+            st.markdown("**Zuverlässigkeit je Zug** · letzte 30 Tage, in Klammern die Zahl der Tage mit Daten")
+            render_reliability(df, route_label, end_date)
+
+            with st.expander("📈 Verlauf über alle Daten und Verspätungsgründe"):
+                render_combined_train_chart(df, route_label, settings.timezone)
+
+    with tab_claims:
+        render_claims(settings.database_path, end_date)
 
     with tab_system:
         render_car_summary(car_df)
         st.subheader("Systemstatus")
         last_obs = full_df["observation_ts"].max()
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Letztes Update", str(last_obs)[:19] if pd.notna(last_obs) else "-")
+        c1.metric("Letztes Update", f"{last_obs:%d.%m. %H:%M}" if pd.notna(last_obs) else "-")
         c2.metric("Datensätze gesamt", int(len(full_df)))
         c3.metric("Ankunft ohne Info", int(full_df["effective_arrival_missing"].sum()))
         c4.metric("Ankunft offen", int(full_df["effective_arrival_open"].sum()))

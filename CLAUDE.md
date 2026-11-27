@@ -44,6 +44,16 @@ streamlit run dashboard.py        # Dashboard starten
 - Leere Strecke / API-Fehler → Exit 1 (GitHub-Fehlermail); DB wird trotzdem committet.
 - ICE73 und ICE202 fahren seit 23.11.2026 nicht (Fahrplanänderung, kein Bug).
 
+## Auto-Vergleich
+- Live-Messung nur bis 30 min nach der Abfahrtszeit (06:30 / 16:30), sonst TomTom-Prognose (`departAt` = genau diese Zeit, historischer Pendelverkehr). Spalte `car_observations.source` = `live` | `forecast`; live ersetzt Prognose, nie umgekehrt.
+- Nur Mo–Fr. Wohnadresse ist privat: `CAR_HOME_LAT/LON` in `.env` bzw. GitHub-Secrets, im Code nur Fallback Freiburg Hbf.
+
+## Dashboard
+- Farben = Erstattungsschwellen: <5 grün, 5–19 gelb, 20–59 orange (reklamierbar), ≥60/Ausfall rot. Statuspalette fest, immer mit Textlabel.
+- Tab „💶 Erstattung“ nutzt `monthly_claim_report.read_month` + `estimate_compensation` → identisch mit der Monatsmail.
+- Monatsmail-Züge: ICE376/ECE8 morgens, ICE73/ICE373/RE5339 abends; pro Strecke und Tag nur der am stärksten verspätete Fall (`keep_one_case_per_commute`).
+- Erstattung (bahn.de): Pauschale je Fall ab 60 min (FV 2. Kl. 5 €, 1. Kl. 7,50 €; NV 1,50/2,25 €; BC100 10/15 €), max. 25 % des Kartenwerts, Auszahlung ab 4 €. Fälle ab 20 min sammelbar (nicht BC100); Umrechnung nicht festgelegt → Schätzung „je 60 gesammelte Minuten eine Pauschale“. `CLAIM_TARIFF` / `CLAIM_TICKET_PRICE`.
+
 ## Lokal
 - Arbeitskopie: `~/Developer/bahn-monitor` (außerhalb von iCloud; früher unter Dokumente → iCloud brach Git-Operationen ab und lagerte die `.venv` aus).
 - Remote per SSH (`git@github.com:schekoni/bahn.git`); im Schlüsselbund ist kein HTTPS-Login gespeichert.
